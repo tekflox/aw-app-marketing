@@ -13,8 +13,10 @@ from marketing_app.ledger import Ledger
 from marketing_app.mcp.http_handler import TOOLS_SCHEMA
 from marketing_app.routes import build_routes
 
+TEST_TOKEN = "sk-test-not-a-real-token"  # nosec B105 - obvious placeholder, never a credential
+#: The token lives in the secret store, not in config — see config.py's module
+#: docstring — so it is never part of this dict, only of FakeCtx.secrets below.
 CONFIG = {
-    "meta_access_token": "sk-test-not-a-real-token",  # nosec B105 - placeholder
     "meta_ad_account_id": "act_000000000000000",
     "meta_page_id": "100000000000000",
     "default_daily_budget_minor": 500,
@@ -29,12 +31,40 @@ PRODUCTS = [
 ]
 
 
+class FakeSecrets:
+    def __init__(self, initial=None):
+        self.store = dict(initial or {})
+
+    def read(self, key):
+        return self.store.get(key)
+
+    def write(self, key, value):
+        self.store[key] = value
+        return {"key": key, "written": True}
+
+    def delete(self, key):
+        removed = key in self.store
+        self.store.pop(key, None)
+        return {"key": key, "deleted": removed}
+
+    def keys(self):
+        return list(self.store)
+
+
+class FakeCtx:
+    def __init__(self, package_dir, config=None, token=None):
+        self.package_dir = package_dir
+        self.config = dict(config or {})
+        self.secrets = FakeSecrets({"meta_access_token": token} if token else {})
+
+
 @pytest.fixture
 def client(tmp_path):
-    config = dict(CONFIG)
-    app = build_routes(lambda: config, Ledger(str(tmp_path / "data")))
+    ctx = FakeCtx(str(tmp_path), config=dict(CONFIG), token=TEST_TOKEN)
+    app = build_routes(ctx, Ledger(str(tmp_path / "data")))
     with TestClient(app) as c:
-        c.aw_config = config
+        c.aw_ctx = ctx
+        c.aw_config = ctx.config
         yield c
 
 
@@ -158,7 +188,7 @@ def test_status_names_every_missing_field(tmp_path):
     """Silent degradation is this workspace's characteristic failure — an
     unconfigured app answering 200 to everything looks exactly like a working
     one unless it says so."""
-    app = build_routes(lambda: {}, Ledger(str(tmp_path / "data")))
+    app = build_routes(FakeCtx(str(tmp_path)), Ledger(str(tmp_path / "data")))
     with TestClient(app) as client:
         body = client.get("/status").json()
     assert body["configured"] is False
@@ -169,5 +199,27 @@ def test_status_names_every_missing_field(tmp_path):
 def test_config_is_re_read_not_snapshotted(client):
     """A token pasted after activation has to take effect without a restart."""
     assert client.get("/status").json()["meta_upstream_enabled"] is True
-    client.aw_config["meta_access_token"] = ""
+    client.aw_ctx.secrets.delete("meta_access_token")
+    assert client.get("/status").json()["meta_upstream_enabled"] is False
+
+
+def test_settings_writes_the_token_to_secrets_not_config(client):
+    """The whole point of this route: the token must never reach ctx.config."""
+    resp = client.post("/settings", json={"meta_access_token": "another-test-token"})
+    assert resp.status_code == 200
+    assert resp.json()["ok"] is True
+    assert client.aw_ctx.secrets.read("meta_access_token") == "another-test-token"
+    assert "meta_access_token" not in client.aw_ctx.config
+
+
+def test_settings_rejects_an_empty_token(client):
+    resp = client.post("/settings", json={"meta_access_token": "  "})
+    assert resp.status_code == 400
+
+
+def test_logout_clears_the_token(client):
+    assert client.get("/status").json()["meta_upstream_enabled"] is True
+    resp = client.post("/logout")
+    assert resp.status_code == 200
+    assert resp.json()["meta_upstream_enabled"] is False
     assert client.get("/status").json()["meta_upstream_enabled"] is False

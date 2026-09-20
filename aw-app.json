@@ -21,7 +21,8 @@
   "permissions": [
     "routes:register",
     "fs:workspace-data",
-    "agents:contribute"
+    "agents:contribute",
+    "secrets:own"
   ],
   "contributes": {
     "routes": [
@@ -86,7 +87,8 @@
       "meta_access_token": {
         "type": "string",
         "default": "",
-        "description": "Meta access token with the ads_mcp_management permission, used as the Bearer credential for the hosted https://mcp.facebook.com/ads upstream. Generated once in the Meta app dashboard (App ID 111891037126607 for Crispal) and pasted here; user tokens expire after ~60 days. Empty means the meta-ads upstream is registered DISABLED and every Meta-side step reports 'not configured' instead of 401-ing with zero tools."
+        "x-secret": true,
+        "description": "Meta access token with the ads_mcp_management permission, used as the Bearer credential for the hosted https://mcp.facebook.com/ads upstream. Generated once in the Meta app dashboard (App ID 111891037126607 for Crispal); user tokens expire after ~60 days. Never stored in plain config — routed to the encrypted secret store via POST /api/apps/marketing/settings, same pattern as aw-app-notion's notion_token / aw-app-git's github_token. Empty means the meta-ads upstream is registered DISABLED and every Meta-side step reports 'not configured' instead of 401-ing with zero tools."
       },
       "meta_ad_account_id": {
         "type": "string",

@@ -5,8 +5,10 @@ import pytest
 
 from marketing_app.planner import PAUSED, PlanError, campaign_plan
 
+#: The token lives in the secret store, not in config — see config.py's module
+#: docstring — so campaign_plan() takes it as a separate ``token`` argument.
+TOKEN = "sk-test-not-a-real-token"  # nosec B105 - obvious placeholder, never a credential
 CONFIG = {
-    "meta_access_token": "sk-test-not-a-real-token",  # nosec B105 - placeholder
     "meta_ad_account_id": "act_000000000000000",
     "meta_page_id": "100000000000000",
     "meta_instagram_actor_id": "200000000000000",
@@ -23,7 +25,7 @@ PRODUCTS = [
 def test_everything_is_paused():
     """PAUSED is the only brake between an agent and real ad spend — the
     gateway's approval gate does not cover upstream tool calls."""
-    plan = campaign_plan("Outono/Inverno", PRODUCTS, config=CONFIG)
+    plan = campaign_plan("Outono/Inverno", PRODUCTS, config=CONFIG, token=TOKEN)
     assert plan["status"] == PAUSED
     assert plan["campaign"]["status"] == PAUSED
     assert plan["ad_set"]["status"] == PAUSED
@@ -32,7 +34,7 @@ def test_everything_is_paused():
 
 
 def test_no_status_anywhere_in_the_plan_is_active():
-    plan = campaign_plan("Outono/Inverno", PRODUCTS, config=CONFIG)
+    plan = campaign_plan("Outono/Inverno", PRODUCTS, config=CONFIG, token=TOKEN)
 
     def statuses(node):
         if isinstance(node, dict):
@@ -48,14 +50,14 @@ def test_no_status_anywhere_in_the_plan_is_active():
 
 
 def test_falls_back_to_configured_defaults():
-    plan = campaign_plan("Outono/Inverno", PRODUCTS, config=CONFIG)
+    plan = campaign_plan("Outono/Inverno", PRODUCTS, config=CONFIG, token=TOKEN)
     assert plan["ad_set"]["daily_budget"] == 500
     assert plan["ad_set"]["targeting"]["geo_locations"]["countries"] == ["PT"]
     assert plan["currency"] == "EUR"
 
 
 def test_arguments_beat_configured_defaults():
-    plan = campaign_plan("x", PRODUCTS, config=CONFIG, daily_budget=1500, country="es")
+    plan = campaign_plan("x", PRODUCTS, config=CONFIG, token=TOKEN, daily_budget=1500, country="es")
     assert plan["ad_set"]["daily_budget"] == 1500
     assert plan["ad_set"]["targeting"]["geo_locations"]["countries"] == ["ES"]
 
@@ -74,39 +76,39 @@ def test_refuses_to_invent_a_country():
 
 def test_refuses_a_zero_or_negative_budget():
     with pytest.raises(PlanError, match="positive"):
-        campaign_plan("x", PRODUCTS, config=CONFIG, daily_budget=-1)
+        campaign_plan("x", PRODUCTS, config=CONFIG, token=TOKEN, daily_budget=-1)
 
 
 def test_refuses_an_empty_brief_or_empty_products():
     with pytest.raises(PlanError, match="brief"):
-        campaign_plan("  ", PRODUCTS, config=CONFIG)
+        campaign_plan("  ", PRODUCTS, config=CONFIG, token=TOKEN)
     with pytest.raises(PlanError, match="products"):
-        campaign_plan("x", [], config=CONFIG)
+        campaign_plan("x", [], config=CONFIG, token=TOKEN)
 
 
 def test_rejects_unknown_objective_and_platform():
     with pytest.raises(PlanError, match="objective"):
-        campaign_plan("x", PRODUCTS, config=CONFIG, objective="MAKE_MONEY")
+        campaign_plan("x", PRODUCTS, config=CONFIG, token=TOKEN, objective="MAKE_MONEY")
     with pytest.raises(PlanError, match="platform"):
-        campaign_plan("x", PRODUCTS, config=CONFIG, platform="tiktok")
+        campaign_plan("x", PRODUCTS, config=CONFIG, token=TOKEN, platform="tiktok")
 
 
 def test_default_objective_is_traffic():
     """Sales optimisation silently underdelivers without a configured pixel."""
-    assert campaign_plan("x", PRODUCTS, config=CONFIG)["campaign"]["objective"] == "OUTCOME_TRAFFIC"
+    assert campaign_plan("x", PRODUCTS, config=CONFIG, token=TOKEN)["campaign"]["objective"] == "OUTCOME_TRAFFIC"
 
 
 def test_platform_selects_publisher_platforms():
-    both = campaign_plan("x", PRODUCTS, config=CONFIG)["ad_set"]["targeting"]["publisher_platforms"]
+    both = campaign_plan("x", PRODUCTS, config=CONFIG, token=TOKEN)["ad_set"]["targeting"]["publisher_platforms"]
     assert both == ["facebook", "instagram"]
-    only_ig = campaign_plan("x", PRODUCTS, config=CONFIG, platform="instagram")
+    only_ig = campaign_plan("x", PRODUCTS, config=CONFIG, token=TOKEN, platform="instagram")
     assert only_ig["ad_set"]["targeting"]["publisher_platforms"] == ["instagram"]
     assert only_ig["creative_hint"]["instagram_actor_id"] == "200000000000000"
 
 
 def test_warns_when_instagram_is_asked_for_but_not_configured():
     config = {**CONFIG, "meta_instagram_actor_id": ""}
-    plan = campaign_plan("x", PRODUCTS, config=config, platform="instagram")
+    plan = campaign_plan("x", PRODUCTS, config=config, token=TOKEN, platform="instagram")
     assert any("meta_instagram_actor_id" in w for w in plan["warnings"])
 
 
@@ -121,5 +123,5 @@ def test_warns_but_still_plans_when_meta_is_not_configured():
 
 def test_warns_about_products_with_no_image():
     plan = campaign_plan("x", [{"id": 9, "name": "Bota", "url": "https://example.test/9"}],
-                         config=CONFIG)
+                         config=CONFIG, token=TOKEN)
     assert any("image_url" in w for w in plan["warnings"])

@@ -40,20 +40,31 @@ catalog.** Two tests pin exactly that (`tests/test_routes_and_mcp.py`).
 
 ## Configuration
 
-Nothing here ships with a value. Set them per installation:
+Nothing here ships with a value. The Meta access token is a credential and
+goes through its own route, straight to the workspace's encrypted secret
+store; everything else is a plain per-install setting:
 
 ```bash
+curl -X POST http://127.0.0.1:9030/api/apps/marketing/settings \
+  -H "X-Api-Key: $AW_WORKSPACE_API_KEY" -H 'Content-Type: application/json' \
+  -d '{"meta_access_token": "..."}'
+
 curl -X POST http://127.0.0.1:9030/api/apps/marketing/config \
   -H "X-Api-Key: $AW_WORKSPACE_API_KEY" -H 'Content-Type: application/json' \
-  -d '{"meta_access_token": "...", "meta_ad_account_id": "act_...",
-       "meta_page_id": "...", "meta_instagram_actor_id": "...",
-       "default_daily_budget_minor": 500, "default_country": "PT",
-       "default_currency": "EUR"}'
+  -d '{"meta_ad_account_id": "act_...", "meta_page_id": "...",
+       "meta_instagram_actor_id": "...", "default_daily_budget_minor": 500,
+       "default_country": "PT", "default_currency": "EUR"}'
 ```
 
-Values land in the workspace's `config_store`
+`POST /settings` (and `POST /logout` to clear it) is the only way the token
+ever moves — `POST /config` never sees it. Posting it to `/config` would be a
+mistake, not a shortcut: that endpoint has no notion of the schema's
+`x-secret` marker and would happily write it into `loaded.config`, which is
+plain and cloud-synced.
+
+The rest of the config lands in the workspace's `config_store`
 (`<AW_WORKSPACE_HOME>/app-config/marketing.json`) — outside the package dir, so
-they survive an app update, an uninstall/reinstall and a workspace redeploy. The
+it survives an app update, an uninstall/reinstall and a workspace redeploy. The
 repo versions only the schema.
 
 Check what's missing at any time:
@@ -68,10 +79,21 @@ Until `meta_access_token` is set, the `meta-ads` upstream is registered
 serves zero tools reads as a broken app; a disabled one reads as an
 unconfigured app, which is the truth.
 
-### The token is NOT in aw-secrets
+### The token is in this app's OWN secret store, not `aw-secrets`
 
-Deliberately. That vault is human-gated — every read pings a person on Telegram.
-The gateway needs this token on every activation with nobody in the loop.
+Two different mechanisms, easy to conflate:
+
+* **`aw-secrets`** is the shared, human-gated vault — every read pings a
+  person on Telegram. Wrong fit here: the gateway needs this token on every
+  activation with nobody in the loop.
+* **`ctx.secrets`** (this app, `secrets:own`) is the workspace-local encrypted
+  store (`src/apps/secret_store.py`, Fernet at rest) every app with a bearer
+  credential uses for exactly this — same pattern as aw-app-notion's
+  `notion_token`, aw-app-git's `github_token`, aw-app-android-studio's
+  `remote_token`. No human in the loop, and never plain config.
+
+The token is in the second one, not the first — and not in plain config
+either, which is the gap this section used to leave open.
 
 ### Prerequisites nobody can code around
 
@@ -93,10 +115,12 @@ Changing a `PAUSED` to `ACTIVE` removes the brake. The skill's step (e) is the
 other half: after creating, send the link and stop. Activating, re-budgeting and
 retargeting are a person's job, in Ads Manager, always.
 
-**This app writes its own `mcp.json`, and is the only writer of it.** It does
-**not** ship `mcp.template.json`, which is the workspace's usual answer for a
-credentialled upstream. `mcp_template.render()` writes the file whole rather
-than merging, and the runtime runs it *after* the plugin on both paths
+**This app writes its own `mcp.json`, and only its own code writes it** — on
+activate, on a (non-token) config save, and from `POST /settings`/`POST
+/logout` when the token itself changes. It does **not** ship
+`mcp.template.json`, which is the workspace's usual answer for a credentialled
+upstream. `mcp_template.render()` writes the file whole rather than merging,
+and the runtime runs it *after* the plugin on both paths
 (`src/apps/runtime.py:902` → `:930`; `src/apps/routes.py:763-765` → `:770`), so
 shipping both would silently delete this app's own `marketing` entry on every
 boot and every config save. `marketing_app/mcp/self_register.py` has the full

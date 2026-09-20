@@ -168,6 +168,7 @@ def _json(payload: Any) -> str:
 
 
 async def handle_request(request: dict, *, config: dict[str, Any] | None = None,
+                         token: str | None = None,
                          ledger: Ledger | None = None) -> dict | None:
     """One JSON-RPC message in, one response out (or ``None`` for a notification)."""
     method = request.get("method", "")
@@ -206,6 +207,7 @@ async def handle_request(request: dict, *, config: dict[str, Any] | None = None,
         try:
             plan = campaign_plan(
                 args.get("brief") or "", args.get("products") or [], config=config,
+                token=token,
                 objective=args.get("objective"), daily_budget=args.get("daily_budget"),
                 platform=args.get("platform"), country=args.get("country"),
                 currency=args.get("currency"), age_min=args.get("age_min"),

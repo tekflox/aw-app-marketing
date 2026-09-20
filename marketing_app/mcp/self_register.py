@@ -6,7 +6,9 @@ aw-mcp-gateway discovers upstreams by scanning ``<installed-app-dir>/mcp.json``
 * ``marketing`` — our own ``POST /mcp`` endpoint (``http_handler.py``), whose
   URL is only knowable at runtime (``socket.gethostname()`` + ``$AW_PORT``);
 * ``meta-ads`` — Meta's hosted Ads MCP server at ``https://mcp.facebook.com/ads``,
-  authenticated with the access token from this app's own config.
+  authenticated with the access token from this app's own encrypted secret
+  store (``ctx.secrets``, never plain ``ctx.config`` — see ``routes.py``'s
+  ``/settings``/``/logout`` and ``config.py``'s module docstring).
 
 Why we do NOT use ``mcp.template.json``
 ---------------------------------------
@@ -45,6 +47,15 @@ Tier-1 vs Tier-2 addressing: a Tier-2 app is its own container and needs
 injects into sibling containers as ``AW_WORKSPACE_HOST`` — no extra env var.
 Tier-1 routes are IdentityGuard-gated, hence the ``X-Api-Key`` header on our own
 entry (see ``docs/app-workspace-api-auth.md``).
+
+Four call sites, not two: the token now changes via ``POST /settings`` /
+``POST /logout`` (``routes.py``), not via the generic ``POST /config`` this
+docstring's "config save" bullet above describes — those two routes write
+straight to ``ctx.secrets`` and never trigger ``on_config_saved``, so they call
+:func:`register_self` themselves rather than relying on the runtime's
+post-config-save hook to do it for them. ``activate`` and ``on_config_saved``
+still call it too (the latter now a no-op rewrite in the common case, since
+none of the fields that DO travel through plain config affect ``mcp.json``).
 """
 
 from __future__ import annotations
@@ -100,10 +111,15 @@ def _meta_entry(token: str) -> dict:
     return entry
 
 
-def build_document(port: int, config: dict | None) -> dict:
+def build_document(port: int, token: str | None) -> dict:
     """The complete ``mcp.json`` document — pure, so tests can assert its shape
-    without touching the filesystem or a real token."""
-    token = str((config or {}).get("meta_access_token") or "").strip()
+    without touching the filesystem or a real token.
+
+    ``token`` is passed in explicitly rather than pulled out of an app config
+    dict: it lives in the encrypted secret store (``ctx.secrets``), never in
+    plain ``ctx.config`` — see ``config.py``'s module docstring.
+    """
+    token = str(token or "").strip()
     return {
         "mcpServers": {
             OWN_SERVER_NAME: _own_entry(port),
@@ -112,7 +128,7 @@ def build_document(port: int, config: dict | None) -> dict:
     }
 
 
-def register_self(package_dir: str, port: int, config: dict | None = None) -> bool:
+def register_self(package_dir: str, port: int, token: str | None = None) -> bool:
     """Write both upstreams into ``mcp.json``. Returns True if the file changed.
 
     Best-effort by design: a bare dev run with no package dir simply no-ops, and
@@ -122,7 +138,7 @@ def register_self(package_dir: str, port: int, config: dict | None = None) -> bo
     if not os.path.isdir(package_dir):
         return False
 
-    doc = build_document(port, config)
+    doc = build_document(port, token)
     path = mcp_json_path(package_dir)
 
     try:
@@ -153,7 +169,7 @@ def register_self(package_dir: str, port: int, config: dict | None = None) -> bo
     if not meta_enabled:
         log.warning(
             "aw-app-marketing: %r upstream is DISABLED — no meta_access_token in "
-            "this app's config. Nothing can be created on Meta until one is saved "
-            "via POST /api/apps/marketing/config.", META_SERVER_NAME,
+            "this app's secret store. Nothing can be created on Meta until one is "
+            "saved via POST /api/apps/marketing/settings.", META_SERVER_NAME,
         )
     return True

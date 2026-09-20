@@ -67,6 +67,7 @@ def campaign_plan(
     products: list[dict[str, Any]],
     *,
     config: dict[str, Any] | None = None,
+    token: str | None = None,
     objective: str | None = None,
     daily_budget: int | None = None,
     platform: str | None = None,
@@ -138,7 +139,7 @@ def campaign_plan(
         warnings.append(
             "meta_instagram_actor_id is not configured — this will deliver on Facebook only."
         )
-    missing = cfg.missing(config)
+    missing = cfg.missing(config, token)
     if missing:
         warnings.append(
             "Not configured: " + ", ".join(missing)
