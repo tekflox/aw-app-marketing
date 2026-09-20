@@ -1,0 +1,28 @@
+[tool.coverage.run]
+source = ["marketing_app"]
+omit = ["*/__pycache__/*"]
+
+[tool.coverage.report]
+# Exemptions 1-4 from docs/standards/pipeline-testing.md §3 (glue,
+# properties, dunder reprs, pure re-exports) — lifted from
+# aw-backend/src/tests/.coveragerc, the precedent that section names, same
+# as the aw-app-kb pilot (card 3d65bf3b-9510-8173-b347-d834e37aeedf).
+exclude_lines = [
+    "pragma: no cover",
+    "def __repr__",
+    "def __str__",
+    "if __name__ == .__main__",
+    "raise NotImplementedError",
+    "pass",
+    "except ImportError",
+]
+show_missing = true
+precision = 1
+# Hard 100% gate, same bar aw-app-template sets for the estate. Measured 100%
+# at first commit with real behavioural tests (no import-only stubs) — this is
+# a small, deterministic, pure-function app, so there is nothing here that is
+# genuinely impractical to cover. The riskiest code in it (mcp/self_register.py,
+# whose failure mode is SILENT: the gateway keeps listing the upstream and
+# serves zero tools) is exactly the code a coverage gap would hide. Never lower
+# this without writing the reason here.
+fail_under = 100

@@ -1,0 +1,75 @@
+# OS/editor noise
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Local environment and secrets
+.env
+.env.*
+!.env.example
+*.local
+*.local.*
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.python-version
+.venv/
+venv/
+env/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+.coverage.*
+coverage.xml
+htmlcov/
+
+# Node / frontend tooling
+node_modules/
+ui/node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+.npm/
+.pnpm-store/
+.yarn/cache/
+.yarn/unplugged/
+.yarn/build-state.yml
+.vite/
+ui/.vite/
+build/
+ui/build/
+
+# Test and browser automation output
+test-results/
+playwright-report/
+coverage/
+ui/coverage/
+
+# Runtime scratch files
+.tmp/
+tmp/
+temp/
+*.log
+
+# GENERATED, NEVER COMMITTED — mcp.json is written at runtime by
+# marketing_app/mcp/self_register.py and carries TWO credentials: the
+# workspace API key (X-Api-Key, for our own /mcp endpoint) and the Meta
+# access token (Authorization: Bearer, for mcp.facebook.com/ads).
+#
+# This repo is PUBLIC. Gitleaks in .github/workflows/security-scan.yml scans
+# the whole git HISTORY, not just the tip — a token committed once and
+# removed in the next commit is still a leaked token. Hence: ignored before
+# the very first `git add`, not after someone notices.
+mcp.json
+
+# And the template's companion, which this app deliberately does NOT use —
+# see marketing_app/mcp/self_register.py for why a second writer would
+# silently erase the first one's work.
+mcp.template.json
