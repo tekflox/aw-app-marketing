@@ -2,8 +2,8 @@
   "manifest_version": 1,
   "id": "marketing",
   "name": "Marketing",
-  "version": "0.1.0",
-  "description": "Turns a product shortlist into a paid-social campaign the human still has to press play on. Registers Meta's own hosted Ads MCP server (mcp.facebook.com/ads) as a gateway upstream with your access token, and adds four deterministic, network-free tools of its own — score a catalog against a collection hint, draft a campaign plan, build a validated carousel creative, and keep an append-only ledger of what was launched. It never creates a campaign (Meta's tools do) and never reads a catalog (the store's app does); campaigns are always created PAUSED and activated by a human in Ads Manager.",
+  "version": "0.2.0",
+  "description": "Turns a product shortlist into a paid-social campaign the human still has to press play on. Registers Meta's own hosted Ads MCP server (mcp.facebook.com/ads) as a gateway upstream with your access token, and adds four deterministic, network-free tools of its own \u2014 score a catalog against a collection hint, draft a campaign plan, build a validated carousel creative, and keep an append-only ledger of what was launched. It never creates a campaign (Meta's tools do) and never reads a catalog (the store's app does); campaigns are always created PAUSED and activated by a human in Ads Manager.",
   "icon": "megaphone",
   "tier": "inprocess",
   "requires_ui_refresh": false,
@@ -44,7 +44,7 @@
       {
         "id": "aw-marketing",
         "path": "skills/aw-marketing/SKILL.md",
-        "description": "The catalog → shortlist → plan → creative → PAUSED campaign flow: which tools to call in which order, why the store's `search` tool must never be used, and the hard stop after a campaign is created (send the Ads Manager link, never activate)."
+        "description": "The catalog \u2192 shortlist \u2192 plan \u2192 creative \u2192 PAUSED campaign flow: which tools to call in which order, why the store's `search` tool must never be used, and the hard stop after a campaign is created (send the Ads Manager link, never activate)."
       }
     ],
     "agents": {
@@ -52,7 +52,7 @@
         {
           "slug": "agent-config-marketing",
           "name": "Marketing",
-          "description": "Tool belt for the marketing agent: this app's own deterministic tools, Meta's hosted Ads MCP, and the store app's catalog upstream. The store credential is never duplicated here — it is reached through the gateway, owned by whichever app registered that store.",
+          "description": "Tool belt for the marketing agent: this app's own deterministic tools, Meta's hosted Ads MCP, and the store app's catalog upstream. The store credential is never duplicated here \u2014 it is reached through the gateway, owned by whichever app registered that store.",
           "mcp_servers": [
             {
               "name": "marketing",
@@ -71,7 +71,7 @@
         {
           "slug": "marketing-sonnet",
           "name": "Marketing - Sonnet",
-          "description": "Monta campanhas pagas no Instagram/Facebook a partir do catálogo da loja — seleciona produtos, monta plano e criativo, cria a campanha PAUSADA na Meta e devolve o link do Ads Manager para um humano ativar.",
+          "description": "Monta campanhas pagas no Instagram/Facebook a partir do cat\u00e1logo da loja \u2014 seleciona produtos, monta plano e criativo, cria a campanha PAUSADA na Meta e devolve o link do Ads Manager para um humano ativar.",
           "system_prompt_file": "agents/prompts/marketing.md",
           "model_slug": "claude-runner-sonnet",
           "disable_harness_tools": true,
@@ -88,7 +88,7 @@
         "type": "string",
         "default": "",
         "x-secret": true,
-        "description": "Meta access token with the ads_mcp_management permission, used as the Bearer credential for the hosted https://mcp.facebook.com/ads upstream. Generated once in the Meta app dashboard (App ID 111891037126607 for Crispal); user tokens expire after ~60 days. Never stored in plain config — routed to the encrypted secret store via POST /api/apps/marketing/settings, same pattern as aw-app-notion's notion_token / aw-app-git's github_token. Empty means the meta-ads upstream is registered DISABLED and every Meta-side step reports 'not configured' instead of 401-ing with zero tools."
+        "description": "Meta access token with the ads_mcp_management permission, used as the Bearer credential for the hosted https://mcp.facebook.com/ads upstream. Generated once in the Meta app dashboard (App ID 111891037126607 for Crispal); user tokens expire after ~60 days. Never stored in plain config \u2014 routed to the encrypted secret store via POST /api/apps/marketing/settings, same pattern as aw-app-notion's notion_token / aw-app-git's github_token. Empty means the meta-ads upstream is registered DISABLED and every Meta-side step reports 'not configured' instead of 401-ing with zero tools."
       },
       "meta_ad_account_id": {
         "type": "string",
@@ -108,17 +108,17 @@
       "default_daily_budget_minor": {
         "type": "integer",
         "default": 0,
-        "description": "Default daily budget in MINOR currency units (cents), e.g. 500 = 5.00. 0 means unset — marketing_campaign_plan then requires an explicit daily_budget argument instead of inventing one."
+        "description": "Default daily budget in MINOR currency units (cents), e.g. 500 = 5.00. 0 means unset \u2014 marketing_campaign_plan then requires an explicit daily_budget argument instead of inventing one."
       },
       "default_country": {
         "type": "string",
         "default": "",
-        "description": "Default two-letter targeting country, e.g. PT. Empty means unset — marketing_campaign_plan requires an explicit country argument instead of guessing where to spend money."
+        "description": "Default two-letter targeting country, e.g. PT. Empty means unset \u2014 marketing_campaign_plan requires an explicit country argument instead of guessing where to spend money."
       },
       "default_currency": {
         "type": "string",
         "default": "",
-        "description": "Default ISO currency of the budget, e.g. EUR. Informational — the ad account's own currency is authoritative on Meta's side; this only labels the plan a human reads."
+        "description": "Default ISO currency of the budget, e.g. EUR. Informational \u2014 the ad account's own currency is authoritative on Meta's side; this only labels the plan a human reads."
       }
     },
     "required": []
