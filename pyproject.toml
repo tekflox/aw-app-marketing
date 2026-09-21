@@ -26,3 +26,10 @@ precision = 1
 # serves zero tools) is exactly the code a coverage gap would hide. Never lower
 # this without writing the reason here.
 fail_under = 100
+
+[tool.pytest.ini_options]
+# test.yml runs plain `pytest` (not `python -m pytest`), so the repo root
+# never lands on sys.path implicitly and `from marketing_app.X import Y`
+# fails to collect. `pythonpath` is native since pytest 7 and fixes both
+# the CI invocation and a local `pytest` run without `-m`.
+pythonpath = ["."]
