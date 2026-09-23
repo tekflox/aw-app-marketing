@@ -11,7 +11,10 @@ state looks persistent and is deleted wholesale on every app update/uninstall,
 which for an audit log means it silently empties exactly when someone needs it.
 
 **Append-only.** Nothing here updates or deletes a row. A campaign whose status
-changed gets a new row; the history is the point.
+changed gets a new row via ``record_event`` — the history is the point.
+``record`` (the creation row) stays idempotent on ``campaign_id`` and refuses
+to duplicate; see ``find``'s ``entry_type`` for how the two kinds of row are
+kept from answering for each other.
 """
 
 from __future__ import annotations
@@ -36,6 +39,14 @@ ADS_MANAGER_URL = (
     "https://business.facebook.com/adsmanager/manage/campaigns"
     "?act={ad_account_id}&selected_campaign_ids={campaign_id}"
 )
+
+#: Rows written by ``record()`` — one per campaign, the creation idempotency
+#: key. Rows written before this field existed carry none and are treated as
+#: this kind (see ``Ledger.find``).
+ENTRY_TYPE_CREATION = "creation"
+#: Rows written by ``record_event()`` — an activation attempt's outcome. Never
+#: satisfies a ``record()`` idempotency lookup; see ``Ledger.find``.
+ENTRY_TYPE_ACTIVATION = "activation"
 
 
 def default_data_dir() -> str:
@@ -87,9 +98,22 @@ class Ledger:
             return []
         return entries
 
-    def find(self, campaign_id: str) -> dict[str, Any] | None:
+    def find(self, campaign_id: str, *, entry_type: str = ENTRY_TYPE_CREATION) -> dict[str, Any] | None:
+        """The row satisfying *entry_type* for this campaign, or ``None``.
+
+        Defaults to the creation row, because that is what ``record()`` calls
+        this for: its idempotency check, "does this campaign already exist on
+        Meta". An activation row must never answer that lookup — it carries no
+        opinion on whether the campaign was already created, only on whether
+        it was later switched on — so it is filtered out here rather than left
+        for the caller to notice. Rows written before ``entry_type`` existed
+        carry none, and are treated as ``creation`` — the only kind that
+        existed then.
+        """
         for entry in self.read_all():
-            if entry.get("campaign_id") == campaign_id:
+            if entry.get("campaign_id") != campaign_id:
+                continue
+            if (entry.get("entry_type") or ENTRY_TYPE_CREATION) == entry_type:
                 return entry
         return None
 
@@ -117,6 +141,7 @@ class Ledger:
                    or cfg.get(config, "meta_ad_account_id") or None)
         entry = {
             "recorded_at": datetime.now(timezone.utc).isoformat(),
+            "entry_type": ENTRY_TYPE_CREATION,
             "campaign_id": campaign_id,
             "ad_set_id": meta_ids.get("ad_set_id") or meta_ids.get("adset_id"),
             "ad_id": meta_ids.get("ad_id"),
@@ -141,6 +166,36 @@ class Ledger:
             fh.write(json.dumps(entry, ensure_ascii=False) + "\n")
         log.info("aw-app-marketing: recorded campaign %s", campaign_id)
         return {**entry, "already_recorded": False}
+
+    def record_event(self, campaign_id: str, event: str, *,
+                      ad_account_id: str | None = None,
+                      notes: str | None = None) -> dict[str, Any]:
+        """Append an ACTIVATION-flow event row: an approval outcome, or the
+        per-entity result of an activation attempt.
+
+        Always appends — unlike ``record()`` there is no idempotency check
+        here. A retried activation after a denial, a timeout, or a partial
+        Meta-side failure is a distinct, real event worth its own row, not a
+        duplicate of the first; ``activation.py`` is what decides whether to
+        retry at all.
+        """
+        campaign_id = str(campaign_id or "").strip()
+        if not campaign_id:
+            raise ValueError("campaign_id is required.")
+        entry = {
+            "recorded_at": datetime.now(timezone.utc).isoformat(),
+            "entry_type": ENTRY_TYPE_ACTIVATION,
+            "campaign_id": campaign_id,
+            "event": event,
+            "ad_account_id": ad_account_id,
+            "notes": notes,
+        }
+        os.makedirs(self.data_dir, exist_ok=True)
+        with open(self.path, "a", encoding="utf-8") as fh:
+            fh.write(json.dumps(entry, ensure_ascii=False) + "\n")
+        log.info("aw-app-marketing: recorded activation event %s for campaign %s",
+                 event, campaign_id)
+        return entry
 
     def list(self, limit: int = 20) -> dict[str, Any]:
         entries = self.read_all()

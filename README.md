@@ -2,7 +2,9 @@
 
 Paid-social campaigns for aw-workspace: take a shortlist of products, turn it
 into a campaign an agent creates on Meta **paused**, and hand a human the Ads
-Manager link to press play on.
+Manager link. Activation still always needs a human — either they press play
+themselves in Ads Manager, or they ask for it and a real approval request goes
+to them on Telegram through this app's own `marketing_activate_campaign`.
 
 The whole design is one sentence: **this app is the deterministic middle, and it
 holds neither credential.**
@@ -19,7 +21,7 @@ in a process, never in this repo.
 ## What you get when it's installed
 
 * **Two gateway upstreams**, both written into one `mcp.json` by this app:
-  * `marketing` — the five tools below, on `/api/apps/marketing/mcp`
+  * `marketing` — the six tools below, on `/api/apps/marketing/mcp`
   * `meta-ads` — Meta's hosted Ads MCP, with your access token
 * **One agent** — `marketing-sonnet`, plus its agent config
 * **One skill** — `aw-marketing`, the flow contract the agent loads
@@ -33,10 +35,13 @@ in a process, never in this repo.
 | `marketing_campaign_plan(brief, products, …)` | the full campaign/ad-set/ad spec, `PAUSED` throughout, plus a human-readable summary. Refuses to invent a budget or a country |
 | `marketing_build_creative(products, …)` | a carousel `object_story_spec` validated against Meta's limits offline. Refuses when a product has no image |
 | `marketing_record_campaign(plan, meta_ids)` | appends what Meta created and returns the Ads Manager link. Idempotent on `campaign_id` |
+| `marketing_activate_campaign(campaign_id)` | the ONLY sanctioned way to flip a recorded campaign to `ACTIVE`. Sends a real human approval request (naming the campaign, account and budget it already recorded) and blocks until it's approved; fails closed on denial, timeout or an unreachable backend |
 | `marketing_list_campaigns(limit)` | what was launched, when, for which products |
 
-All five are pure and offline. **None creates a campaign. None reads a
-catalog.** Two tests pin exactly that (`tests/test_routes_and_mcp.py`).
+Five of the six are pure and offline; `marketing_activate_campaign` is the one
+exception, and its entire job is that one gated network call. **None creates a
+campaign. None reads a catalog.** Two tests pin exactly that
+(`tests/test_routes_and_mcp.py`).
 
 ## Configuration
 
@@ -107,13 +112,25 @@ either, which is the gap this section used to leave open.
 
 ## Two things not to "clean up"
 
-**`status: PAUSED`, everywhere.** It is not a cautious default, it is the only
-brake that exists. The gateway's approval gate covers agent-*run* tools only
-(`apps/mcp-gateway/back/gateway/config_gateway.py`), not arbitrary upstream tool
-calls — so nothing between an agent and Meta's ad API asks a human first.
-Changing a `PAUSED` to `ACTIVE` removes the brake. The skill's step (e) is the
-other half: after creating, send the link and stop. Activating, re-budgeting and
-retargeting are a person's job, in Ads Manager, always.
+**`status: PAUSED` on everything `marketing_campaign_plan` builds.** It is not
+a cautious default, it is a scope boundary: the gateway's approval gate covers
+agent-*run* tools only (`apps/mcp-gateway/back/gateway/config_gateway.py`), not
+arbitrary upstream tool calls, so nothing between an agent and Meta's
+ad-*creation* API asks a human first. Making the plan parametrically `ACTIVE`
+would start spending before a human has even seen the campaign exist.
+Re-budgeting and retargeting stay a person's job, in Ads Manager, always —
+that part never changes.
+
+Activation is no longer flatly refused, and that is a deliberate policy
+change, not an erosion of this one: `marketing_activate_campaign` is a
+separate, dedicated tool that puts a real human approval request in front of
+every activation, built from what this app already recorded creating, never
+from a free-form argument. See `marketing_app/activation.py`'s module
+docstring for the full design and `skills/aw-marketing/SKILL.md`'s step (e)
+for how an agent is meant to use it. What to resist "cleaning up" here is the
+plan's own `status`, not the existence of activation altogether — don't make
+`campaign_plan`'s `status` parametrizable; that would let the artefact a human
+reviews also be the thing that spends money.
 
 **This app writes its own `mcp.json`, and only its own code writes it** — on
 activate, on a (non-token) config save, and from `POST /settings`/`POST

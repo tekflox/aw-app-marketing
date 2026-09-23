@@ -3,7 +3,7 @@
   "id": "marketing",
   "name": "Marketing",
   "version": "0.2.0",
-  "description": "Turns a product shortlist into a paid-social campaign the human still has to press play on. Registers Meta's own hosted Ads MCP server (mcp.facebook.com/ads) as a gateway upstream with your access token, and adds four deterministic, network-free tools of its own \u2014 score a catalog against a collection hint, draft a campaign plan, build a validated carousel creative, and keep an append-only ledger of what was launched. It never creates a campaign (Meta's tools do) and never reads a catalog (the store's app does); campaigns are always created PAUSED and activated by a human in Ads Manager.",
+  "description": "Turns a product shortlist into a paid-social campaign the human still has to press play on \u2014 or ask for directly. Registers Meta's own hosted Ads MCP server (mcp.facebook.com/ads) as a gateway upstream with your access token, and adds five tools of its own \u2014 score a catalog against a collection hint, draft a campaign plan, build a validated carousel creative, keep an append-only ledger of what was launched, and (the one tool that makes a network call) activate a campaign, but only behind a real human approval request, never on the agent's own judgment. It never creates a campaign (Meta's tools do) and never reads a catalog (the store's app does); campaigns are always created PAUSED, and activating one is always a human's call \u2014 in Ads Manager, or through this app's own approval-gated tool when they ask directly.",
   "icon": "megaphone",
   "tier": "inprocess",
   "requires_ui_refresh": false,
@@ -37,6 +37,7 @@
         "marketing_campaign_plan",
         "marketing_build_creative",
         "marketing_record_campaign",
+        "marketing_activate_campaign",
         "marketing_list_campaigns"
       ]
     },
@@ -44,7 +45,7 @@
       {
         "id": "aw-marketing",
         "path": "skills/aw-marketing/SKILL.md",
-        "description": "The catalog \u2192 shortlist \u2192 plan \u2192 creative \u2192 PAUSED campaign flow: which tools to call in which order, why the store's `search` tool must never be used, and the hard stop after a campaign is created (send the Ads Manager link, never activate)."
+        "description": "The catalog \u2192 shortlist \u2192 plan \u2192 creative \u2192 PAUSED campaign flow: which tools to call in which order, why the store's `search` tool must never be used, and what happens after a campaign is created \u2014 send the Ads Manager link and stop, unless the human asks directly to activate it, the one case where marketing_activate_campaign is the sanctioned next step."
       }
     ],
     "agents": {
@@ -76,7 +77,7 @@
           "model_slug": "claude-runner-sonnet",
           "disable_harness_tools": true,
           "agent_config_slug": "agent-config-marketing",
-          "capabilities": "Builds paid social campaigns from a store catalog: picks products for a collection, drafts plan and carousel creative, creates the campaign PAUSED via Meta's own Ads MCP, records it in an audit ledger, and hands the Ads Manager link to a human. Never activates a campaign or changes a budget."
+          "capabilities": "Builds paid social campaigns from a store catalog: picks products for a collection, drafts plan and carousel creative, creates the campaign PAUSED via Meta's own Ads MCP, records it in an audit ledger, and hands the Ads Manager link to a human. Never changes a budget or targeting. Activates a campaign only when the human asks directly, and only through marketing_activate_campaign's own human-approval gate — never via the meta-ads tools directly, never on its own judgment."
         }
       ]
     }

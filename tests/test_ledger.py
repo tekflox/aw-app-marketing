@@ -2,10 +2,11 @@
 the whole log unreadable."""
 
 import json
+import os
 
 import pytest
 
-from marketing_app.ledger import Ledger, ads_manager_url
+from marketing_app.ledger import ENTRY_TYPE_ACTIVATION, ENTRY_TYPE_CREATION, Ledger, ads_manager_url
 
 PLAN = {
     "brief": "Outono/Inverno 25/26",
@@ -116,3 +117,46 @@ def test_blank_lines_are_skipped(ledger):
     with open(ledger.path, "a") as fh:
         fh.write("\n\n")
     assert ledger.list()["total"] == 1
+
+
+# --- entry_type: creation vs. activation rows -------------------------------
+
+def test_record_writes_a_creation_row(ledger):
+    assert ledger.record(PLAN, META_IDS)["entry_type"] == ENTRY_TYPE_CREATION
+
+
+def test_record_event_requires_a_campaign_id(ledger):
+    with pytest.raises(ValueError, match="campaign_id"):
+        ledger.record_event("", "activation_denied")
+
+
+def test_record_event_appends_an_activation_row(ledger):
+    event = ledger.record_event("c1", "activation_denied",
+                                ad_account_id="act_1", notes="approval denied")
+    assert event["entry_type"] == ENTRY_TYPE_ACTIVATION
+    assert event["campaign_id"] == "c1"
+    assert event["event"] == "activation_denied"
+    assert event["notes"] == "approval denied"
+    with open(ledger.path) as fh:
+        assert len([line for line in fh if line.strip()]) == 1
+
+
+def test_an_activation_row_never_answers_a_creation_lookup(ledger):
+    """The bug this guards against: a same-campaign_id activation row must
+    not be handed back to record()'s idempotency check as the creation row."""
+    ledger.record(PLAN, META_IDS)
+    ledger.record_event(META_IDS["campaign_id"], "activation_success")
+    found = ledger.find(META_IDS["campaign_id"])
+    assert found["entry_type"] == ENTRY_TYPE_CREATION
+
+    activation_row = ledger.find(META_IDS["campaign_id"], entry_type=ENTRY_TYPE_ACTIVATION)
+    assert activation_row["event"] == "activation_success"
+
+
+def test_a_row_written_before_entry_type_existed_is_treated_as_creation(ledger):
+    """Backward compatibility: old rows carry no ``entry_type`` key at all."""
+    legacy = {**META_IDS, "recorded_at": "2026-01-01T00:00:00+00:00", "brief": "x"}
+    os.makedirs(ledger.data_dir, exist_ok=True)
+    with open(ledger.path, "a") as fh:
+        fh.write(json.dumps(legacy) + "\n")
+    assert ledger.find(META_IDS["campaign_id"]) == legacy

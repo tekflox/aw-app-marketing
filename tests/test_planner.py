@@ -23,8 +23,11 @@ PRODUCTS = [
 
 
 def test_everything_is_paused():
-    """PAUSED is the only brake between an agent and real ad spend — the
-    gateway's approval gate does not cover upstream tool calls."""
+    """This module never creates ``ACTIVE`` — that boundary doesn't move.
+    Activating an already-created campaign is a separate, human-approval-gated
+    tool (``marketing_activate_campaign``, see ``activation.py``); this pins
+    that creation itself carries no escape hatch into it — ``status`` isn't
+    even a parameter here."""
     plan = campaign_plan("Outono/Inverno", PRODUCTS, config=CONFIG, token=TOKEN)
     assert plan["status"] == PAUSED
     assert plan["campaign"]["status"] == PAUSED

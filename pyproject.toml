@@ -33,3 +33,8 @@ fail_under = 100
 # fails to collect. `pythonpath` is native since pytest 7 and fixes both
 # the CI invocation and a local `pytest` run without `-m`.
 pythonpath = ["."]
+# activation.py's tests are async (the approval-poll flow is genuinely async,
+# not just a sync function wrapped for form) — "auto" runs every `async def
+# test_*` without an `@pytest.mark.asyncio` on each one. requirements-dev.txt
+# already carries pytest-asyncio for exactly this.
+asyncio_mode = "auto"
