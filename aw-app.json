@@ -2,7 +2,7 @@
   "manifest_version": 1,
   "id": "marketing",
   "name": "Marketing",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "description": "Turns a product shortlist into a paid-social campaign the human still has to press play on \u2014 or ask for directly. Registers Meta's own hosted Ads MCP server (mcp.facebook.com/ads) as a gateway upstream with your access token, and adds five tools of its own \u2014 score a catalog against a collection hint, draft a campaign plan, build a validated carousel creative, keep an append-only ledger of what was launched, and (the one tool that makes a network call) activate a campaign, but only behind a real human approval request, never on the agent's own judgment. It never creates a campaign (Meta's tools do) and never reads a catalog (the store's app does); campaigns are always created PAUSED, and activating one is always a human's call \u2014 in Ads Manager, or through this app's own approval-gated tool when they ask directly.",
   "icon": "megaphone",
   "tier": "inprocess",
@@ -82,7 +82,7 @@
           "model_slug": "claude-runner-sonnet",
           "disable_harness_tools": true,
           "agent_config_slug": "agent-config-marketing",
-          "capabilities": "Builds paid social campaigns from a store catalog: picks products for a collection, drafts plan and carousel creative, creates the campaign PAUSED via Meta's own Ads MCP, records it in an audit ledger, and hands the Ads Manager link to a human. Never changes a budget or targeting. Activates a campaign only when the human asks directly, and only through marketing_activate_campaign's own human-approval gate — never via the meta-ads tools directly, never on its own judgment."
+          "capabilities": "Builds paid social campaigns from a store catalog: picks products for a collection, drafts plan and carousel creative, creates the campaign PAUSED via Meta's own Ads MCP, records it in an audit ledger, and hands the Ads Manager link to a human. Never changes a budget or targeting. Activates a campaign only when the human asks directly, and only through marketing_activate_campaign's own human-approval gate \u2014 never via the meta-ads tools directly, never on its own judgment."
         }
       ]
     }
