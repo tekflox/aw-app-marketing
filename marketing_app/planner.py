@@ -6,12 +6,25 @@ is deliberately boring and complete: every field a campaign / ad set will be
 created with, spelled out, with nothing left to be decided later by whoever
 happens to call the Meta tools.
 
-**``status`` is always ``PAUSED``, and that is not timidity.** Verified against
-this workspace's gateway (``apps/mcp-gateway/back/gateway/config_gateway.py``):
-the approval gate only covers agent-*run* tools, not arbitrary upstream tool
-calls. So nothing between an agent and Meta's ad-creation API asks a human
-first — ``PAUSED`` is the only actual brake. Anyone "improving" this to
-``ACTIVE`` is removing the brake, not polishing a default.
+**``status`` is always ``PAUSED`` here, and that is a scope boundary, not
+timidity.** Verified against this workspace's gateway
+(``apps/mcp-gateway/back/gateway/config_gateway.py``): the approval gate only
+covers agent-*run* tools, not arbitrary upstream tool calls, so nothing
+between an agent and Meta's ad-creation API asks a human first by default.
+Creating something ``ACTIVE`` would start spending before a human has even
+seen the campaign exist, let alone approved it — Meta's own ad review hasn't
+run yet either. That is a strictly larger mistake than "the plan turned out
+wrong", so this module refuses it unconditionally: ``status`` is not a
+parameter here, and adding one would not be a safety improvement.
+
+**Activating a campaign this app already created is a separate concern with
+its own answer — not "loosen this constant".** Frederico (the workspace
+owner) asked explicitly to allow activation on his direct request, and the
+answer that shipped is ``marketing_activate_campaign`` (see
+``activation.py``'s module docstring): a dedicated tool that puts a real human
+approval request in front of every activation, built from what this app
+actually recorded creating, never from a free-form argument. Nothing below
+this line changes because of that — a plan is still always born ``PAUSED``.
 """
 
 from __future__ import annotations
@@ -190,12 +203,17 @@ def campaign_plan(
             f"{ad_set['targeting']['age_max']}\n"
             f"  placements:  {', '.join(publisher_platforms)} (automatic positions)\n"
             f"  products:    {len(items)}\n"
-            f"  status:      {PAUSED} — nothing spends until a human activates it "
-            f"in Ads Manager."
+            f"  status:      {PAUSED} — nothing spends until a human presses play "
+            f"in Ads Manager, or approves activating it when asked."
         ),
         "next_step": (
             "Get the human's approval of this plan, then create it with the "
             "meta-ads tools — campaign, ad set and ad all with status PAUSED — "
-            "and record the result with marketing_record_campaign."
+            "and record the result with marketing_record_campaign. It stays "
+            "PAUSED after that: a human presses play in Ads Manager themselves, "
+            "or activating it comes up in conversation — call "
+            "marketing_activate_campaign whenever it does; it puts a real "
+            "approval request in front of a human, so you never have to judge "
+            "how direct the request was."
         ),
     }

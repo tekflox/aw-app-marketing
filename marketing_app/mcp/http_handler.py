@@ -6,11 +6,16 @@ surface is exposed as JSON-RPC 2.0 over HTTP — the wire protocol the gateway's
 own ``HttpUpstream`` already speaks. ``self_register.py`` is what makes the
 gateway find this endpoint.
 
-**Every tool here is deterministic and makes no network calls.** Two things this
-server deliberately cannot do:
+**Every tool here is deterministic and makes no network calls — except
+``marketing_activate_campaign``, whose entire job is one gated network call.**
+See ``activation.py``'s module docstring for why that one exception exists and
+what keeps it safe: it does not activate anything itself, it asks a human, and
+it fails closed on every kind of "asking didn't work". Two things this server
+still, deliberately, cannot do:
 
 * **create a campaign** — that is Meta's hosted MCP (``meta-ads`` upstream),
-  registered alongside this one;
+  registered alongside this one; this app only ever flips an existing,
+  already-recorded campaign's status, never creates one;
 * **read a catalog** — that is the store's own app and its own credential, held
   by the agent, never by this app.
 
@@ -23,10 +28,30 @@ from __future__ import annotations
 import json
 from typing import Any
 
+import httpx
+
+from ..activation import ActivationError, activate_campaign
 from ..creative import CreativeError, build_creative
 from ..filtering import filter_products
 from ..ledger import Ledger
 from ..planner import PlanError, campaign_plan
+
+
+#: Test seam only — ``None`` means real network. Tests set this to an
+#: ``httpx.MockTransport`` (httpx's own first-class test double, not a
+#: monkeypatch of httpx itself) rather than faking a response object by hand.
+_TRANSPORT: httpx.AsyncBaseTransport | None = None
+
+
+async def _http_post(url: str, **kwargs: Any) -> httpx.Response:
+    async with httpx.AsyncClient(transport=_TRANSPORT) as client:
+        return await client.post(url, **kwargs)
+
+
+async def _http_get(url: str, **kwargs: Any) -> httpx.Response:
+    async with httpx.AsyncClient(transport=_TRANSPORT) as client:
+        return await client.get(url, **kwargs)
+
 
 _PRODUCT_ARRAY = {
     "type": "array",
@@ -146,6 +171,45 @@ TOOLS_SCHEMA: list[dict[str, Any]] = [
         },
     },
     {
+        "name": "marketing_activate_campaign",
+        "description": (
+            "The ONLY sanctioned way to make a campaign ACTIVE. Call this "
+            "whenever the human expresses ANY intent to activate a specific, "
+            "already-recorded campaign — an explicit instruction or an "
+            "ambiguous 'go ahead, do it' folded into a longer message. You are "
+            "not the judge of how direct the request was; this tool is. It "
+            "decides nothing on its own: it sends a real approval request to a "
+            "human on Telegram (naming the campaign, ad account and daily "
+            "budget this app itself recorded — never whatever you say here) "
+            "and blocks until they press Approve. That press is what makes it "
+            "a direct request, not the wording that led you to call this. "
+            "Denied, expired, timed out, or the approval backend unreachable — "
+            "all refuse, fail closed, nothing activates. Only works on a "
+            "campaign_id this app already recorded with "
+            "marketing_record_campaign. Activates the whole tree (campaign, ad "
+            "set, ad) and reports per entity — a partial result (one entity "
+            "active, another rejected by Meta) is expected, not a bug, and is "
+            "never rolled back automatically. If a result names "
+            "fallback_needed, approval was granted but this app's own token "
+            "could not complete it — finish with the meta-ads upstream's "
+            "ads_activate_entity, do not ask the human again."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "campaign_id": {
+                    "type": "string",
+                    "description": (
+                        "The Meta campaign_id from marketing_record_campaign's "
+                        "result. Nothing else about the request is taken from "
+                        "you — name, account and budget come from the ledger."
+                    ),
+                },
+            },
+            "required": ["campaign_id"],
+        },
+    },
+    {
         "name": "marketing_list_campaigns",
         "description": (
             "List campaigns recorded by this app, most recent first — what was "
@@ -177,8 +241,15 @@ def _json(payload: Any) -> str:
 
 async def handle_request(request: dict, *, config: dict[str, Any] | None = None,
                          token: str | None = None,
-                         ledger: Ledger | None = None) -> dict | None:
-    """One JSON-RPC message in, one response out (or ``None`` for a notification)."""
+                         ledger: Ledger | None = None,
+                         http_post: Any = None,
+                         http_get: Any = None) -> dict | None:
+    """One JSON-RPC message in, one response out (or ``None`` for a notification).
+
+    ``http_post``/``http_get`` default to this module's real httpx-backed
+    wrappers and exist as parameters for the same reason ``ledger`` already
+    is: a test (or a future caller) can pass something else in without
+    reaching into module internals."""
     method = request.get("method", "")
     req_id = request.get("id")
 
@@ -202,6 +273,8 @@ async def handle_request(request: dict, *, config: dict[str, Any] | None = None,
     name = request.get("params", {}).get("name", "")
     args = request.get("params", {}).get("arguments", {}) or {}
     ledger = ledger or Ledger()
+    http_post = http_post or _http_post
+    http_get = http_get or _http_get
 
     if name == "marketing_filter_products":
         result = filter_products(
@@ -244,14 +317,29 @@ async def handle_request(request: dict, *, config: dict[str, Any] | None = None,
             return _err(req_id, str(exc))
         link = entry.get("ads_manager_url")
         tail = (
-            f"\n\nSend this link to the human and STOP:\n{link}\n"
-            "Activating the campaign, changing its budget or editing its "
-            "targeting is done by a person in Ads Manager — never by this agent."
+            f"\n\nSend this link to the human:\n{link}\n"
+            "Changing the budget or editing the targeting is always a person's "
+            "job, in Ads Manager. If activating it comes up — explicit or "
+            "an ambiguous 'go ahead' — call marketing_activate_campaign; it "
+            "asks a human for real approval itself, so you don't have to judge "
+            "how direct the request was. Never call the meta-ads tools "
+            "directly to activate."
             if link else
             "\n\nNo Ads Manager link could be built (no ad_account_id). Record one "
             "with meta_ids.ad_account_id, or pass Meta's own permalink."
         )
         return _ok(req_id, _json(entry) + tail)
+
+    if name == "marketing_activate_campaign":
+        try:
+            result = await activate_campaign(
+                args.get("campaign_id") or "",
+                ledger=ledger, token=token,
+                http_post=http_post, http_get=http_get,
+            )
+        except ActivationError as exc:
+            return _err(req_id, str(exc))
+        return _ok(req_id, _json(result))
 
     if name == "marketing_list_campaigns":
         return _ok(req_id, _json(ledger.list(limit=int(args.get("limit") or 20))))

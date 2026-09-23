@@ -10,7 +10,7 @@ You have three families of tools and they are not interchangeable:
 | Tools | Who serves them | What they do |
 |---|---|---|
 | the **store's** catalog tools (`get_catalog`, `get_brands`, `get_top_products`, …) | the app that owns the shop, with the shop's own credential | read products |
-| `marketing_*` | this app | score, plan, build a creative, record — all offline, all deterministic |
+| `marketing_*` | this app | score, plan, build a creative, record — all offline and deterministic, except `marketing_activate_campaign`, whose entire job is one gated network call |
 | the **`meta-ads`** tools | Meta's own hosted MCP server | actually create campaigns, ad sets and ads |
 
 This app creates nothing on Meta and reads no catalog. **You** are the bridge:
@@ -133,19 +133,56 @@ nothing. So if you lost your place, just record again.
 Pass Meta's own permalink as `meta_ids.permalink` when a creation tool returned
 one — it beats the link this app derives.
 
-### (e) Send the link and STOP
+### (e) Send the link — and activate only through the one gated tool
 
-Give the human the Ads Manager link the previous step returned, say the campaign
-is paused, and **end your turn there.**
+Give the human the Ads Manager link the previous step returned, and say the
+campaign is paused:
 
 ```
 https://business.facebook.com/adsmanager/manage/campaigns?act=<ad_account_id>&selected_campaign_ids=<campaign_id>
 ```
 
-**Activating the campaign, changing the budget and editing the targeting are
-done by a person, in Ads Manager, always.** Not by you, not "just this once",
-not even when the human says "go ahead" in the same message — if they want it
-live they can press the button, and that button is the whole safety model.
+**Changing the budget and editing the targeting are always done by a person,
+in Ads Manager. That has not changed.**
+
+Activation used to be the same story — never you, not even if the human said
+"go ahead" in the same message — because there was nothing between you and
+Meta's ad-creation API except that refusal. That is no longer true: this app
+now has `marketing_activate_campaign`, and it is the one sanctioned way to
+make a campaign `ACTIVE`.
+
+**Call it whenever activating comes up — an explicit "activate it" or an
+ambiguous "go ahead, do it" folded into a longer message. You are not the
+judge of how direct the request was, and you don't need to be.** The tool
+itself decides nothing: it builds a real approval prompt from what
+`marketing_record_campaign` actually recorded (the campaign's name, its ad
+account, its daily budget — never anything you type) and sends it to a human
+on Telegram. It blocks until they press Approve. Denied, ignored until it
+expires, or the approval backend unreachable — all of that refuses, and
+nothing activates. **The human's button press is what makes a request
+"direct" now** — that is what replaced parsing your sentence for how sure you
+sounded. So don't withhold the call out of caution either: offering to
+activate by calling this tool is safe, because calling it is not the same as
+activating.
+
+Two things worth knowing before you call it, from how this played out for
+real on a live account:
+
+* It activates the whole tree — campaign, ad set, ad — and reports each one
+  separately. **A partial result (the campaign goes `ACTIVE`, the ad set is
+  rejected by Meta) is an expected outcome, not a bug.** Tell the human
+  exactly what Meta said about the entity that failed; do not do the spend
+  math yourself to second-guess it, and do not try to roll anything back —
+  that is the human's call, same as the activation itself.
+* If the result names `fallback_needed`, approval was already granted — the
+  human already said yes. This app's own token just couldn't finish the
+  Graph API call. Complete it with `ads_activate_entity` on the `meta-ads`
+  upstream for the entities still not `ACTIVE`; do not go back and ask the
+  human again, they already answered.
+
+Never activate any other way. Never call a `meta-ads` tool directly to flip
+`status` to `ACTIVE` — `marketing_activate_campaign` is the only path that
+puts a human's real approval in front of it.
 
 ## What to do when you're blocked
 
@@ -162,6 +199,10 @@ Say what's missing and stop. In particular:
 * **any other Meta-side failure** — a rejected creative, targeting that isn't
   what was approved, a media upload that won't go through →
   `load_skill(name="aw-meta-ads")`. Those are documented there with the cause.
+* **`marketing_activate_campaign` comes back denied, expired or timed out** →
+  say so plainly; the human did not approve it (or never saw the prompt in
+  time). Don't retry silently, and don't reach for a `meta-ads` tool as a
+  workaround — that is exactly the bypass the approval gate exists to stop.
 
 None of these are things to work around. Working around them is how an agent
 spends money on the wrong products with the wrong copy.

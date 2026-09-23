@@ -85,9 +85,15 @@ def payload(result):
 
 def test_no_tool_creates_a_campaign():
     """Creating campaigns is Meta's hosted MCP. If a tool here ever does it,
-    the PAUSED-only safety model has been bypassed."""
+    the PAUSED-only safety model has been bypassed. ``marketing_activate_campaign``
+    is the one sanctioned exception — it creates nothing, and does not decide
+    anything either; see ``activation.py``'s module docstring for why an
+    approval gate in front of it is not the bypass this test still guards
+    against. This pins that it stays the ONLY such tool — a second one
+    appearing here unreviewed would fail this exact assertion."""
     names = [t["name"] for t in TOOLS_SCHEMA]
-    assert not [n for n in names if "create" in n or "launch" in n or "activate" in n]
+    assert not [n for n in names if "create" in n or "launch" in n]
+    assert [n for n in names if "activate" in n] == ["marketing_activate_campaign"]
 
 
 def test_no_tool_reads_a_catalog():
@@ -103,7 +109,7 @@ def test_the_advertised_tools_are_exactly_the_manifest_ones(client):
     assert names == {
         "marketing_filter_products", "marketing_campaign_plan",
         "marketing_build_creative", "marketing_record_campaign",
-        "marketing_list_campaigns",
+        "marketing_activate_campaign", "marketing_list_campaigns",
     }
 
 
@@ -152,9 +158,11 @@ def test_filter_then_plan_then_creative_then_record(client):
     recorded = call(client, "marketing_record_campaign", plan=plan,
                     meta_ids={"campaign_id": "120000000000001"})
     assert payload(recorded)["campaign_id"] == "120000000000001"
-    # The hard stop lives in the tool result itself, not only in the skill.
+    # The sanctioned activation path lives in the tool result itself, not only
+    # in the skill.
     text = recorded["content"][0]["text"]
-    assert "STOP" in text and "never by this agent" in text
+    assert "marketing_activate_campaign" in text
+    assert "Never call the meta-ads tools directly to activate" in text
 
     listed = payload(call(client, "marketing_list_campaigns"))
     assert listed["total"] == 1
@@ -181,7 +189,7 @@ def test_status_reports_configured(client):
     body = client.get("/status").json()
     assert body["configured"] is True
     assert body["meta_upstream_enabled"] is True
-    assert len(body["tools"]) == 5
+    assert len(body["tools"]) == 6
 
 
 def test_status_names_every_missing_field(tmp_path):

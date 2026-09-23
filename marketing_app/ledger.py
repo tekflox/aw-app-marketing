@@ -23,6 +23,14 @@ a real campaign kept null ids forever. Now a later call that says something new
 **appends a revision row**, and reads **fold** every row for a campaign into
 the current view of it. Both guarantees survive: nothing is rewritten, and
 ``already_recorded`` still means exactly what it meant.
+
+**Two kinds of row, and they must never answer for each other.** A ``creation``
+row (written by ``record()``) is what ``already_recorded`` and folding reason
+about. An ``activation`` row (written by ``record_event()``) is a distinct
+event — an approval outcome, or an activation attempt's result — and is never
+folded into the creation view, never satisfies ``record()``'s idempotency
+check, and never counts as a campaign of its own in ``list()``. See ``find``'s
+``entry_type``.
 """
 
 from __future__ import annotations
@@ -48,6 +56,14 @@ ADS_MANAGER_URL = (
     "?act={ad_account_id}&selected_campaign_ids={campaign_id}"
 )
 
+#: Rows written by ``record()`` — one per campaign, the creation idempotency
+#: key. Rows written before this field existed carry none and are treated as
+#: this kind (see ``Ledger.find``).
+ENTRY_TYPE_CREATION = "creation"
+#: Rows written by ``record_event()`` — an activation attempt's outcome. Never
+#: satisfies a ``record()`` idempotency lookup; see ``Ledger.find``.
+ENTRY_TYPE_ACTIVATION = "activation"
+
 
 def default_data_dir() -> str:
     """``<AW_WORKSPACE_HOME>/data/marketing`` — the layout the runtime binds for
@@ -68,8 +84,11 @@ def default_data_dir() -> str:
 #: ``recorded_at`` is when a row was written, not something the caller asserts
 #: about the campaign — so it never counts as new information, and folding
 #: keeps the FIRST one (when the campaign was launched). Every row's timestamp
-#: stays visible in the folded ``history``.
-FOLD_IGNORES = ("recorded_at",)
+#: stays visible in the folded ``history``. ``entry_type`` is metadata about
+#: the row's kind, not campaign content — every row folded together here is
+#: already the same kind (see ``find``/``record``/``list``), so treating it as
+#: content would only add noise for a legacy row that predates the field.
+FOLD_IGNORES = ("recorded_at", "entry_type")
 
 
 def _says_something_new(current: dict[str, Any], candidate: dict[str, Any]) -> list[str]:
@@ -140,17 +159,32 @@ class Ledger:
             return []
         return entries
 
-    def find(self, campaign_id: str) -> dict[str, Any] | None:
-        """The **folded** current view of one campaign, or ``None``.
+    def find(self, campaign_id: str, *, entry_type: str = ENTRY_TYPE_CREATION) -> dict[str, Any] | None:
+        """The current view for *entry_type* on this campaign, or ``None``.
 
-        Not the first matching row: a campaign created in two calls has more
-        than one, and the oldest is precisely the one missing the ids the
-        second call brought.
+        Defaults to the creation row, because that is what ``record()`` calls
+        this for: its idempotency check, "does this campaign already exist on
+        Meta". An activation row must never answer that lookup — it carries no
+        opinion on whether the campaign was already created, only on whether
+        it was later switched on — so it is filtered out by type before
+        anything else happens. Rows written before ``entry_type`` existed
+        carry none, and are treated as ``creation`` — the only kind that
+        existed then.
+
+        For ``creation``, the matching rows are **folded**: not the first
+        match, because a campaign created in two calls has more than one row,
+        and the oldest is precisely the one missing the ids the second call
+        brought. Activation rows are distinct events rather than revisions of
+        one another, so the most recent one wins instead.
         """
-        rows = [e for e in self.read_all() if e.get("campaign_id") == campaign_id]
+        rows = [e for e in self.read_all()
+                if e.get("campaign_id") == campaign_id
+                and (e.get("entry_type") or ENTRY_TYPE_CREATION) == entry_type]
         if not rows:
             return None
-        return _fold(rows)[0]
+        if entry_type == ENTRY_TYPE_CREATION:
+            return _fold(rows)[0]
+        return rows[-1]
 
     def _append(self, entry: dict[str, Any]) -> None:
         os.makedirs(self.data_dir, exist_ok=True)
@@ -186,12 +220,14 @@ class Ledger:
             )
 
         existing_rows = [e for e in self.read_all()
-                         if e.get("campaign_id") == campaign_id]
+                         if e.get("campaign_id") == campaign_id
+                         and (e.get("entry_type") or ENTRY_TYPE_CREATION) == ENTRY_TYPE_CREATION]
         plan = dict(plan or {})
         account = (meta_ids.get("ad_account_id") or plan.get("ad_account_id")
                    or cfg.get(config, "meta_ad_account_id") or None)
         entry = {
             "recorded_at": datetime.now(timezone.utc).isoformat(),
+            "entry_type": ENTRY_TYPE_CREATION,
             "campaign_id": campaign_id,
             "ad_set_id": meta_ids.get("ad_set_id") or meta_ids.get("adset_id"),
             "ad_id": meta_ids.get("ad_id"),
@@ -227,6 +263,36 @@ class Ledger:
         log.info("aw-app-marketing: recorded campaign %s", campaign_id)
         return {**entry, "already_recorded": False}
 
+    def record_event(self, campaign_id: str, event: str, *,
+                      ad_account_id: str | None = None,
+                      notes: str | None = None) -> dict[str, Any]:
+        """Append an ACTIVATION-flow event row: an approval outcome, or the
+        per-entity result of an activation attempt.
+
+        Always appends — unlike ``record()`` there is no idempotency check
+        here. A retried activation after a denial, a timeout, or a partial
+        Meta-side failure is a distinct, real event worth its own row, not a
+        duplicate of the first; ``activation.py`` is what decides whether to
+        retry at all.
+        """
+        campaign_id = str(campaign_id or "").strip()
+        if not campaign_id:
+            raise ValueError("campaign_id is required.")
+        entry = {
+            "recorded_at": datetime.now(timezone.utc).isoformat(),
+            "entry_type": ENTRY_TYPE_ACTIVATION,
+            "campaign_id": campaign_id,
+            "event": event,
+            "ad_account_id": ad_account_id,
+            "notes": notes,
+        }
+        os.makedirs(self.data_dir, exist_ok=True)
+        with open(self.path, "a", encoding="utf-8") as fh:
+            fh.write(json.dumps(entry, ensure_ascii=False) + "\n")
+        log.info("aw-app-marketing: recorded activation event %s for campaign %s",
+                 event, campaign_id)
+        return entry
+
     def list(self, limit: int = 20) -> dict[str, Any]:
         """Campaigns, not rows: every revision of a campaign folds into one
         entry carrying its ``revision`` count and its ``history``. ``total`` is
@@ -235,6 +301,8 @@ class Ledger:
         """
         grouped: dict[str, list[dict[str, Any]]] = {}
         for entry in self.read_all():
+            if (entry.get("entry_type") or ENTRY_TYPE_CREATION) != ENTRY_TYPE_CREATION:
+                continue
             grouped.setdefault(str(entry.get("campaign_id")), []).append(entry)
         campaigns = []
         for rows in grouped.values():
