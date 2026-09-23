@@ -2,7 +2,7 @@
   "manifest_version": 1,
   "id": "marketing",
   "name": "Marketing",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Turns a product shortlist into a paid-social campaign the human still has to press play on. Registers Meta's own hosted Ads MCP server (mcp.facebook.com/ads) as a gateway upstream with your access token, and adds four deterministic, network-free tools of its own \u2014 score a catalog against a collection hint, draft a campaign plan, build a validated carousel creative, and keep an append-only ledger of what was launched. It never creates a campaign (Meta's tools do) and never reads a catalog (the store's app does); campaigns are always created PAUSED and activated by a human in Ads Manager.",
   "icon": "megaphone",
   "tier": "inprocess",
@@ -49,7 +49,7 @@
       {
         "id": "aw-meta-ads",
         "path": "skills/aw-meta-ads/SKILL.md",
-        "description": "Operating Meta's hosted Ads MCP (the meta-ads upstream, ads_* tools): the campaign → ad set → creative → ad call order with minimum payloads, why a video creative needs a thumbnail as well as a video_id, why ads_update_entity replaces targeting instead of merging it, how Advantage+ rewrites targeting and copy unannounced, the API media-upload gate and its UI workaround, and where the Meta access token and every config value live. Load before the first ads_* call."
+        "description": "Operating Meta's hosted Ads MCP (the meta-ads upstream, ads_* tools): the campaign \u2192 ad set \u2192 creative \u2192 ad call order with minimum payloads, why a video creative needs a thumbnail as well as a video_id, why ads_update_entity replaces targeting instead of merging it, how Advantage+ rewrites targeting and copy unannounced, the API media-upload gate and its UI workaround, and where the Meta access token and every config value live. Load before the first ads_* call."
       }
     ],
     "agents": {
