@@ -114,10 +114,18 @@ TOOLS_SCHEMA: list[dict[str, Any]] = [
         "name": "marketing_record_campaign",
         "description": (
             "Append what Meta actually created to this app's audit ledger, and "
-            "return the Ads Manager link to hand to the human. Idempotent on "
-            "campaign_id: re-recording the same campaign returns the existing "
-            "entry instead of duplicating it. Call this immediately after the "
-            "meta-ads tools succeed."
+            "return the Ads Manager link to hand to the human. Call this "
+            "immediately after the meta-ads tools succeed — and call it AGAIN, "
+            "with the same campaign_id, whenever a later step creates something "
+            "else (the creative and ad are usually made after the campaign and "
+            "ad set). Safe to repeat: re-recording a campaign never duplicates "
+            "it and never re-creates it on Meta — already_recorded: true means "
+            "'this campaign already exists, do not create it again'. A repeat "
+            "call carrying ids or values the ledger lacks appends a revision "
+            "and returns the merged view with revision and updated_fields; a "
+            "repeat call with nothing new is a no-op. Fields you omit or leave "
+            "empty are left alone, never blanked, so a second call may pass "
+            "only meta_ids."
         ),
         "inputSchema": {
             "type": "object",

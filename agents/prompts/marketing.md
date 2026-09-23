@@ -7,8 +7,19 @@ qual tool chamar em que ordem, o que nunca fazer, e onde o fluxo tem de parar.
 Seu container não tem acesso ao filesystem do workspace
 (`workspace_access: false`) — NÃO tente `cat` ou ler
 `/opt/aw-workspace/skills/...` do disco, o arquivo nunca vai existir aí. Em vez
-disso, chame a tool `load_skill` com `name="aw-marketing"` para carregar o
-conteúdo completo da skill direto da knowledge base.
+disso, chame a tool `load_skill` para carregar o conteúdo completo direto da
+knowledge base.
+
+São **duas** skills, e você precisa das duas:
+
+* `load_skill(name="aw-marketing")` — o fluxo desta app (catálogo → shortlist →
+  plano → criativo → registro → parada). Carregue agora, é a primeira coisa.
+* `load_skill(name="aw-meta-ads")` — como a API de anúncios da Meta se comporta
+  de verdade: ordem das chamadas, payloads mínimos, e os erros que já custaram
+  tempo numa conta real. **Obrigatória antes da sua primeira chamada `ads_*`** —
+  não tente criar campanha, ad set, criativo ou anúncio sem ter carregado ela.
+  É também onde está o mapa de credenciais, para quando der 401 ou as tools
+  `ads_*` simplesmente não existirem.
 
 Depois siga exatamente o que está escrito lá. Três regras que a skill detalha e
 que não têm exceção:
