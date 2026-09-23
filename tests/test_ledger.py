@@ -119,6 +119,89 @@ def test_blank_lines_are_skipped(ledger):
     assert ledger.list()["total"] == 1
 
 
+# --- creation in two calls --------------------------------------------------
+#
+# An ad is often created in a later call than its campaign and ad set. The
+# ledger used to no-op on the second call and keep the nulls forever, which is
+# how a real campaign's ad_id and creative_id went missing from the audit
+# trail. A later call that says something new now appends a revision row.
+
+def test_a_second_call_with_nothing_new_writes_no_row(ledger):
+    """The no-op path, from the file's side: idempotency must stay cheap and
+    must not grow the log every time a resuming agent re-records."""
+    ledger.record(PLAN, META_IDS)
+    again = ledger.record(PLAN, META_IDS)
+    with open(ledger.path) as fh:
+        assert len([line for line in fh if line.strip()]) == 1
+    assert "revision" not in again and "updated_fields" not in again
+
+
+def test_ids_arriving_in_a_later_call_are_appended_not_dropped(ledger):
+    """The bug this exists for: campaign + ad set first, creative + ad second."""
+    first = ledger.record(PLAN, {"campaign_id": "c1", "ad_set_id": "s1"})
+    assert first["ad_id"] is None and first["already_recorded"] is False
+
+    second = ledger.record(PLAN, {"campaign_id": "c1", "ad_id": "a1",
+                                  "creative_id": "cr1"})
+    assert second["ad_id"] == "a1" and second["creative_id"] == "cr1"
+    # Still the same campaign on Meta — that is what already_recorded answers,
+    # and it is what stops the flow creating it a second time.
+    assert second["already_recorded"] is True
+    assert second["revision"] == 2
+    assert second["updated_fields"] == ["ad_id", "creative_id"]
+    # The ad set from the first call survived a call that never mentioned it.
+    assert second["ad_set_id"] == "s1"
+    # Append-only: two rows on disk, the first one untouched.
+    with open(ledger.path) as fh:
+        rows = [json.loads(line) for line in fh if line.strip()]
+    assert len(rows) == 2 and rows[0]["ad_id"] is None
+
+
+def test_a_falsy_field_is_no_opinion_and_never_overwrites(ledger):
+    """The second call of a two-step creation passes a trimmed plan. An empty
+    products list or an absent brief means "I have nothing to say about this",
+    never "blank what you had"."""
+    ledger.record(PLAN, {"campaign_id": "c1"})
+    second = ledger.record({}, {"campaign_id": "c1", "ad_id": "a1"})
+    assert second["products"] == [1, 2]
+    assert second["brief"] == "Outono/Inverno 25/26"
+    assert second["updated_fields"] == ["ad_id"]
+
+
+def test_listing_counts_campaigns_not_rows(ledger):
+    """`total` is distinct campaigns now — a revised campaign is one campaign,
+    not two. Anything counting lines to count campaigns is wrong."""
+    ledger.record(PLAN, {"campaign_id": "c1"})
+    ledger.record(PLAN, {"campaign_id": "c1", "ad_id": "a1"})
+    ledger.record(PLAN, {"campaign_id": "c2"})
+    listed = ledger.list()
+    assert listed["total"] == 2
+    assert [c["campaign_id"] for c in listed["campaigns"]] == ["c2", "c1"]
+
+
+def test_a_listed_campaign_carries_the_history_of_both_steps(ledger):
+    """Both steps stay recoverable from the tool result, not only from the
+    JSONL — the auditor asking "what did the agent launch" has no filesystem."""
+    ledger.record(PLAN, {"campaign_id": "c1", "ad_set_id": "s1"})
+    ledger.record(PLAN, {"campaign_id": "c1", "ad_id": "a1"})
+    entry = ledger.list()["campaigns"][0]
+    assert entry["revision"] == 2
+    assert [h["fields"] for h in entry["history"]][1] == ["ad_id"]
+    assert "ad_set_id" in entry["history"][0]["fields"]
+    assert all(h["recorded_at"] for h in entry["history"])
+    # The launch timestamp, not the timestamp of the last amendment.
+    assert entry["recorded_at"] == entry["history"][0]["recorded_at"]
+
+
+def test_find_returns_the_folded_view_not_the_oldest_row(ledger):
+    """The oldest row is precisely the one missing the ids the later call
+    brought, so first-match is the wrong answer here."""
+    ledger.record(PLAN, {"campaign_id": "c1"})
+    ledger.record(PLAN, {"campaign_id": "c1", "ad_id": "a1"})
+    assert ledger.find("c1")["ad_id"] == "a1"
+    assert ledger.find("nope") is None
+
+
 # --- entry_type: creation vs. activation rows -------------------------------
 
 def test_record_writes_a_creation_row(ledger):
@@ -160,3 +243,13 @@ def test_a_row_written_before_entry_type_existed_is_treated_as_creation(ledger):
     with open(ledger.path, "a") as fh:
         fh.write(json.dumps(legacy) + "\n")
     assert ledger.find(META_IDS["campaign_id"]) == legacy
+
+
+def test_list_excludes_activation_rows_from_the_campaign_count(ledger):
+    """An activation event is not a campaign of its own, and must not
+    contaminate the folded creation view with activation-only fields."""
+    ledger.record(PLAN, META_IDS)
+    ledger.record_event(META_IDS["campaign_id"], "activation_success")
+    listed = ledger.list()
+    assert listed["total"] == 1
+    assert "event" not in listed["campaigns"][0]

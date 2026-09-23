@@ -2,7 +2,7 @@
   "manifest_version": 1,
   "id": "marketing",
   "name": "Marketing",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Turns a product shortlist into a paid-social campaign the human still has to press play on \u2014 or ask for directly. Registers Meta's own hosted Ads MCP server (mcp.facebook.com/ads) as a gateway upstream with your access token, and adds five tools of its own \u2014 score a catalog against a collection hint, draft a campaign plan, build a validated carousel creative, keep an append-only ledger of what was launched, and (the one tool that makes a network call) activate a campaign, but only behind a real human approval request, never on the agent's own judgment. It never creates a campaign (Meta's tools do) and never reads a catalog (the store's app does); campaigns are always created PAUSED, and activating one is always a human's call \u2014 in Ads Manager, or through this app's own approval-gated tool when they ask directly.",
   "icon": "megaphone",
   "tier": "inprocess",
@@ -46,6 +46,11 @@
         "id": "aw-marketing",
         "path": "skills/aw-marketing/SKILL.md",
         "description": "The catalog \u2192 shortlist \u2192 plan \u2192 creative \u2192 PAUSED campaign flow: which tools to call in which order, why the store's `search` tool must never be used, and what happens after a campaign is created \u2014 send the Ads Manager link and stop, unless the human asks directly to activate it, the one case where marketing_activate_campaign is the sanctioned next step."
+      },
+      {
+        "id": "aw-meta-ads",
+        "path": "skills/aw-meta-ads/SKILL.md",
+        "description": "Operating Meta's hosted Ads MCP (the meta-ads upstream, ads_* tools): the campaign \u2192 ad set \u2192 creative \u2192 ad call order with minimum payloads, why a video creative needs a thumbnail as well as a video_id, why ads_update_entity replaces targeting instead of merging it, how Advantage+ rewrites targeting and copy unannounced, the API media-upload gate and its UI workaround, and where the Meta access token and every config value live. Load before the first ads_* call."
       }
     ],
     "agents": {

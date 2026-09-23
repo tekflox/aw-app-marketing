@@ -96,6 +96,13 @@ description into ad copy yourself either.
 
 ### (c) Create it on Meta — `meta-ads` tools, always `status: PAUSED`
 
+**First: `load_skill(name="aw-meta-ads")`.** Before your first `ads_*` call, not
+after it fails. That skill is the playbook for Meta's own API — the call order,
+the minimum payloads, the three things a video creative needs, why
+`ads_update_entity` wipes targeting it was not resent, and where every
+credential lives. It exists because every one of those was learned the
+expensive way on a live ad account, and none of it is guessable.
+
 Campaign, then ad set, then creative, then ad. **Every one of them PAUSED.**
 
 `PAUSED` is not caution, it is the only brake that exists. The gateway's
@@ -111,10 +118,20 @@ If the `meta-ads` tools are missing entirely, the token isn't configured. Check
 
 ### (d) Record it — `marketing_record_campaign(plan, meta_ids)`
 
-Immediately after creation succeeds. It is idempotent on `campaign_id`, so it is
-safe if you lost your place. Pass Meta's own permalink as
-`meta_ids.permalink` when a creation tool returned one — it beats the link this
-app derives.
+Immediately after creation succeeds — and **again after every later step that
+creates something else.** The creative and the ad are normally made in a
+different call than the campaign and ad set, so record twice: once with
+`campaign_id` + `ad_set_id`, once with `ad_id` + `creative_id`. The second call
+may carry `meta_ids` alone; fields you leave out are kept, never blanked.
+
+It is safe to repeat. `already_recorded: true` means *this campaign already
+exists on Meta, do not create it again* — that is the money-safety signal and it
+does not change. A repeat call that brings something new appends a revision
+(you get back `revision` and `updated_fields`); one that brings nothing new does
+nothing. So if you lost your place, just record again.
+
+Pass Meta's own permalink as `meta_ids.permalink` when a creation tool returned
+one — it beats the link this app derives.
 
 ### (e) Send the link — and activate only through the one gated tool
 
@@ -175,7 +192,13 @@ Say what's missing and stop. In particular:
   plugin. There is no v1 without it.
 * **budget/country not configured and not given** → ask.
 * **`search` returned 0** → you shouldn't have called it; use `get_catalog`.
-* **`meta-ads` tools absent or 401** → token missing or expired.
+* **`meta-ads` tools absent, or a 401** → token missing or expired.
+  `load_skill(name="aw-meta-ads")` §6–§7: it has the credential map and tells
+  you which of the two you're looking at, plus `GET
+  /api/apps/marketing/status`, which names every empty field.
+* **any other Meta-side failure** — a rejected creative, targeting that isn't
+  what was approved, a media upload that won't go through →
+  `load_skill(name="aw-meta-ads")`. Those are documented there with the cause.
 * **`marketing_activate_campaign` comes back denied, expired or timed out** →
   say so plainly; the human did not approve it (or never saw the prompt in
   time). Don't retry silently, and don't reach for a `meta-ads` tool as a
