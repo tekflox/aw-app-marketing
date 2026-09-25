@@ -10,7 +10,7 @@ You have three families of tools and they are not interchangeable:
 | Tools | Who serves them | What they do |
 |---|---|---|
 | the **store's** catalog tools (`get_catalog`, `get_brands`, `get_top_products`, …) | the app that owns the shop, with the shop's own credential | read products |
-| `marketing_*` | this app | score, plan, build a creative, record — all offline and deterministic, except `marketing_activate_campaign`, whose entire job is one gated network call |
+| `marketing_*` | this app | score, plan, build a creative, record — all offline and deterministic, except `marketing_activate_campaign` (one gated network call) and `marketing_minimum_budgets` (one read-only network call) |
 | the **`meta-ads`** tools | Meta's own hosted MCP server | actually create campaigns, ad sets and ads |
 
 This app creates nothing on Meta and reads no catalog. **You** are the bridge:
@@ -173,7 +173,14 @@ real on a live account:
   rejected by Meta) is an expected outcome, not a bug.** Tell the human
   exactly what Meta said about the entity that failed; do not do the spend
   math yourself to second-guess it, and do not try to roll anything back —
-  that is the human's call, same as the activation itself.
+  that is the human's call, same as the activation itself. When the rejection
+  is error_subcode 1885648 (ad set minimum spend higher than the campaign
+  budget), the result also carries `budget_context` — the ad set's real
+  `daily_min_spend_target`/`daily_spend_cap` and the campaign's real
+  `daily_budget`, read straight from Meta. Hand the human those numbers
+  instead of just the error text. You can also check them up front with
+  `marketing_minimum_budgets(ad_account_id)`, before setting a tight budget in
+  the first place.
 * If the result names `fallback_needed`, approval was already granted — the
   human already said yes. This app's own token just couldn't finish the
   Graph API call. Complete it with `ads_activate_entity` on the `meta-ads`

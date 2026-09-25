@@ -45,6 +45,17 @@ never re-validated, never second-guessed — and a partial result is reported as
 ``partial``, never silently rolled back. Undoing a half-activated campaign is
 its own money decision, and it belongs to the human, same as the activation
 itself.
+
+**When that specific error_subcode is what caused the partial result, the
+response also carries ``budget_context``** — the ad set's real
+``daily_min_spend_target``/``daily_spend_cap`` and the campaign's real
+``daily_budget``, read straight back from the Graph API rather than from what
+the ledger recorded asking for. Meta's error message alone does not say by how
+much the numbers diverged; this is what a human needs to actually fix it,
+without a separate manual lookup. Read-only, best-effort — a failed read
+leaves the corresponding field ``None`` rather than raising, since this only
+augments an already-reported partial result. ``budget_context`` is ``None``
+for every other outcome.
 """
 
 from __future__ import annotations
@@ -63,6 +74,11 @@ GRAPH_API_BASE = f"https://graph.facebook.com/{GRAPH_API_VERSION}"
 #: human to tap a Telegram button before treating a request as abandoned.
 APPROVAL_POLL_INTERVAL_S = 2
 APPROVAL_POLL_ATTEMPTS = 150
+
+#: Meta's error_code 100 / error_subcode 1885648 — "the minimum spend of all
+#: your ad sets is higher than your campaign-level budget". See the module
+#: docstring's ``budget_context`` paragraph.
+MIN_SPEND_ERROR_SUBCODE = 1885648
 
 #: Duck-typed httpx.Response: an object with ``.status_code`` and ``.json()``.
 HttpResponse = Any
@@ -180,7 +196,8 @@ async def _activate_entity(entity_id: str, token: str, http_post: HttpCallable) 
     try:
         r = await http_post(url, data={"status": "ACTIVE", "access_token": token}, timeout=15)
     except Exception as exc:
-        return {"entity_id": entity_id, "activated": False, "needs_fallback": False, "error": str(exc)}
+        return {"entity_id": entity_id, "activated": False, "needs_fallback": False,
+                "error": str(exc), "error_subcode": None}
 
     try:
         body = r.json() or {}
@@ -188,14 +205,57 @@ async def _activate_entity(entity_id: str, token: str, http_post: HttpCallable) 
         body = {}
 
     if r.status_code == 200:
-        return {"entity_id": entity_id, "activated": True, "needs_fallback": False, "error": None}
+        return {"entity_id": entity_id, "activated": True, "needs_fallback": False,
+                "error": None, "error_subcode": None}
 
-    error_message = (body.get("error") or {}).get("message") or f"HTTP {r.status_code}"
+    error = body.get("error") or {}
+    error_message = error.get("message") or f"HTTP {r.status_code}"
     return {
         "entity_id": entity_id,
         "activated": False,
         "needs_fallback": r.status_code in (401, 403),
         "error": error_message,
+        "error_subcode": error.get("error_subcode"),
+    }
+
+
+async def _read_fields(entity_id: str, fields: tuple[str, ...],
+                        token: str, http_get: HttpCallable) -> dict[str, Any]:
+    """GET a handful of fields off one entity. Best-effort: any failure (a
+    non-200, an unparseable body, a network exception) returns ``{}`` rather
+    than raising — used only to enrich a result already being reported."""
+    url = f"{GRAPH_API_BASE}/{entity_id}"
+    try:
+        r = await http_get(url, params={"fields": ",".join(fields), "access_token": token}, timeout=15)
+    except Exception:
+        return {}
+    try:
+        body = r.json() or {}
+    except Exception:
+        return {}
+    return body if r.status_code == 200 else {}
+
+
+async def _fetch_budget_context(entry: dict[str, Any], token: str,
+                                 http_get: HttpCallable) -> dict[str, Any]:
+    """The real numbers behind error_subcode 1885648 — see the module
+    docstring's ``budget_context`` paragraph. Read straight from the Graph
+    API, never from what the ledger recorded asking for, which is exactly
+    what this error means diverged from what Meta actually has."""
+    ad_set_id = entry.get("ad_set_id")
+    campaign_id = entry.get("campaign_id")
+    ad_set = (
+        await _read_fields(ad_set_id, ("daily_min_spend_target", "daily_spend_cap"), token, http_get)
+        if ad_set_id else {}
+    )
+    campaign = (
+        await _read_fields(campaign_id, ("daily_budget",), token, http_get)
+        if campaign_id else {}
+    )
+    return {
+        "daily_min_spend_target": ad_set.get("daily_min_spend_target"),
+        "daily_spend_cap": ad_set.get("daily_spend_cap"),
+        "daily_budget": campaign.get("daily_budget"),
     }
 
 
@@ -267,6 +327,12 @@ async def activate_campaign(
     else:
         overall = "failed"
     fallback_needed = any(r["needs_fallback"] for r in results)
+    budget_context = (
+        await _fetch_budget_context(entry, token, http_get)
+        if overall == "partial"
+        and any(r.get("error_subcode") == MIN_SPEND_ERROR_SUBCODE for r in results)
+        else None
+    )
 
     event = ledger.record_event(
         campaign_id, f"activation_{overall}",
@@ -283,5 +349,45 @@ async def activate_campaign(
             "is already granted — complete activation for those entities with "
             "ads_activate_entity on the meta-ads upstream; do not ask again."
         ) if fallback_needed else None,
+        "budget_context": budget_context,
         "ledger_entry": event,
     }
+
+
+async def minimum_budgets(ad_account_id: str, *, token: str | None,
+                          http_get: HttpCallable) -> dict[str, Any]:
+    """GET ``/act_<id>/minimum_budgets`` — Meta's own per-currency minimum
+    ad-set daily spend for an ad account. Read-only: makes no write of any
+    kind. Exists so an agent can check the real spend floor before creating
+    or activating anything, instead of learning it the hard way from
+    ``activate_campaign``'s error_subcode 1885648 (see the module docstring).
+
+    Reuses this module's own token plumbing (``token`` supplied by the
+    caller, same as ``activate_campaign`` — never read out of config here)
+    and the same ``GRAPH_API_BASE`` every other Graph call in this module
+    uses.
+    """
+    ad_account_id = (ad_account_id or "").strip()
+    if not ad_account_id:
+        raise ActivationError("ad_account_id is required.")
+    if not (token or "").strip():
+        raise ActivationError("meta_access_token is not configured.")
+    if not ad_account_id.startswith("act_"):
+        ad_account_id = f"act_{ad_account_id}"
+
+    url = f"{GRAPH_API_BASE}/{ad_account_id}/minimum_budgets"
+    try:
+        r = await http_get(url, params={"access_token": token}, timeout=15)
+    except Exception as exc:
+        raise ActivationError(f"minimum_budgets failed: {exc}") from exc
+
+    try:
+        body = r.json() or {}
+    except Exception:
+        body = {}
+
+    if r.status_code != 200:
+        error_message = (body.get("error") or {}).get("message") or f"HTTP {r.status_code}"
+        raise ActivationError(f"minimum_budgets failed: {error_message}")
+
+    return {"ad_account_id": ad_account_id, "minimum_budgets": body.get("data", body)}

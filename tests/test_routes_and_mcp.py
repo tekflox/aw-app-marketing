@@ -110,6 +110,7 @@ def test_the_advertised_tools_are_exactly_the_manifest_ones(client):
         "marketing_filter_products", "marketing_campaign_plan",
         "marketing_build_creative", "marketing_record_campaign",
         "marketing_activate_campaign", "marketing_list_campaigns",
+        "marketing_minimum_budgets",
     }
 
 
@@ -189,7 +190,7 @@ def test_status_reports_configured(client):
     body = client.get("/status").json()
     assert body["configured"] is True
     assert body["meta_upstream_enabled"] is True
-    assert len(body["tools"]) == 6
+    assert len(body["tools"]) == 7
 
 
 def test_status_names_every_missing_field(tmp_path):

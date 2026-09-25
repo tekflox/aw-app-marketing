@@ -20,6 +20,7 @@ from marketing_app.activation import (
     _budget_display,
     _build_reason,
     activate_campaign,
+    minimum_budgets,
 )
 from marketing_app.ledger import ENTRY_TYPE_ACTIVATION, Ledger
 from marketing_app.mcp import http_handler
@@ -262,6 +263,67 @@ async def test_partial_failure_passes_metas_message_through_literally(ledger):
     assert failed["error"] == "Minimum spend limit is higher than the campaign budget."
     assert failed["needs_fallback"] is False
     assert result["fallback_needed"] is False
+    # No error_subcode 1885648 in this body — nothing to explain further.
+    assert result["budget_context"] is None
+
+
+async def test_partial_failure_with_min_spend_subcode_attaches_budget_context(ledger):
+    """The exact card this shipped for: error_subcode 1885648 means the ad
+    set's own minimum spend is higher than the campaign's daily budget.
+    Meta's message alone doesn't say by how much — this reads the real
+    numbers back and attaches them so a human doesn't have to look them up
+    by hand."""
+    _record(ledger)
+    meta_error = {"error": {
+        "message": "Minimum spend limit is higher than the campaign budget.",
+        "error_subcode": 1885648,
+    }}
+    posts = Scripted(APPROVED_POST, FakeResponse(200), FakeResponse(400, meta_error), FakeResponse(200))
+    gets = Scripted(
+        APPROVED_GET,
+        FakeResponse(200, {"daily_min_spend_target": 200, "daily_spend_cap": 500}),
+        FakeResponse(200, {"daily_budget": 150}),
+    )
+    result = await activate_campaign(
+        "c1", ledger=ledger, token=TOKEN,
+        http_post=posts, http_get=gets,
+        poll_attempts=1, poll_interval_s=0,
+    )
+    assert result["overall"] == "partial"
+    assert result["budget_context"] == {
+        "daily_min_spend_target": 200,
+        "daily_spend_cap": 500,
+        "daily_budget": 150,
+    }
+    # Read from the ad set and the campaign, not the ledger's own numbers.
+    read_urls = [call[0] for call in gets.calls[1:]]
+    assert read_urls == [
+        f"{activation.GRAPH_API_BASE}/s1",
+        f"{activation.GRAPH_API_BASE}/c1",
+    ]
+
+
+async def test_budget_context_read_is_best_effort_on_partial_failure(ledger):
+    """A failed read-back must not blow up an already-reported partial
+    result — it only has ``None`` fields to show for it."""
+    _record(ledger)
+    meta_error = {"error": {
+        "message": "Minimum spend limit is higher than the campaign budget.",
+        "error_subcode": 1885648,
+    }}
+    posts = Scripted(APPROVED_POST, FakeResponse(200), FakeResponse(400, meta_error), FakeResponse(200))
+    gets = Scripted(APPROVED_GET, ConnectionError("reset"), FakeResponse(200, raises=True))
+    result = await activate_campaign(
+        "c1", ledger=ledger, token=TOKEN,
+        http_post=posts, http_get=gets,
+        poll_attempts=1, poll_interval_s=0,
+    )
+    assert result["overall"] == "partial"
+    assert result["budget_context"] == {
+        "daily_min_spend_target": None,
+        "daily_spend_cap": None,
+        "daily_budget": None,
+    }
 
 
 async def test_403_marks_fallback_needed_and_names_the_completion_path(ledger):
@@ -326,6 +388,58 @@ def test_build_reason_falls_back_to_campaign_id_and_unknown_account():
     assert "c1" in reason and "unknown" in reason
 
 
+# --- marketing_minimum_budgets -----------------------------------------------
+
+async def test_minimum_budgets_reads_the_ad_account():
+    gets = Scripted(FakeResponse(200, {"data": [{"currency": "EUR", "min_daily_budget": 100}]}))
+    result = await minimum_budgets("act_1", token=TOKEN, http_get=gets)
+    assert result == {
+        "ad_account_id": "act_1",
+        "minimum_budgets": [{"currency": "EUR", "min_daily_budget": 100}],
+    }
+    url = gets.calls[0][0]
+    assert url == f"{activation.GRAPH_API_BASE}/act_1/minimum_budgets"
+
+
+async def test_minimum_budgets_adds_the_act_prefix_when_missing():
+    gets = Scripted(FakeResponse(200, {"data": []}))
+    await minimum_budgets("1", token=TOKEN, http_get=gets)
+    assert gets.calls[0][0] == f"{activation.GRAPH_API_BASE}/act_1/minimum_budgets"
+
+
+async def test_minimum_budgets_falls_back_to_the_whole_body_without_a_data_key():
+    gets = Scripted(FakeResponse(200, {"min_daily_budget": 100}))
+    result = await minimum_budgets("act_1", token=TOKEN, http_get=gets)
+    assert result["minimum_budgets"] == {"min_daily_budget": 100}
+
+
+async def test_minimum_budgets_requires_an_ad_account_id():
+    with pytest.raises(ActivationError, match="ad_account_id is required"):
+        await minimum_budgets("", token=TOKEN, http_get=Scripted())
+
+
+async def test_minimum_budgets_requires_a_token():
+    with pytest.raises(ActivationError, match="meta_access_token is not configured"):
+        await minimum_budgets("act_1", token="   ", http_get=Scripted())
+
+
+async def test_minimum_budgets_passes_metas_error_through_literally():
+    gets = Scripted(FakeResponse(400, {"error": {"message": "Invalid ad account ID"}}))
+    with pytest.raises(ActivationError, match="Invalid ad account ID"):
+        await minimum_budgets("act_1", token=TOKEN, http_get=gets)
+
+
+async def test_minimum_budgets_falls_back_to_http_status_with_no_error_body():
+    gets = Scripted(FakeResponse(403, raises=True))
+    with pytest.raises(ActivationError, match="HTTP 403"):
+        await minimum_budgets("act_1", token=TOKEN, http_get=gets)
+
+
+async def test_minimum_budgets_network_exception_fails_closed_not_raised_bare():
+    with pytest.raises(ActivationError, match="reset"):
+        await minimum_budgets("act_1", token=TOKEN, http_get=Scripted(ConnectionError("reset")))
+
+
 # --- the MCP dispatch --------------------------------------------------------
 
 async def test_dispatch_activates_through_the_mcp_tool(ledger):
@@ -348,6 +462,27 @@ async def test_dispatch_surfaces_activation_error_as_a_tool_error(ledger):
     )
     assert response["result"]["isError"] is True
     assert "campaign_id is required" in response["result"]["content"][0]["text"]
+
+
+async def test_dispatch_reads_minimum_budgets_through_the_mcp_tool(ledger):
+    gets = Scripted(FakeResponse(200, {"data": [{"currency": "EUR", "min_daily_budget": 100}]}))
+    response = await handle_request(
+        {"jsonrpc": "2.0", "id": 1, "method": "tools/call",
+         "params": {"name": "marketing_minimum_budgets", "arguments": {"ad_account_id": "act_1"}}},
+        token=TOKEN, ledger=ledger, http_post=Scripted(), http_get=gets,
+    )
+    assert response["result"]["isError"] is False
+    assert '"min_daily_budget": 100' in response["result"]["content"][0]["text"]
+
+
+async def test_dispatch_surfaces_minimum_budgets_error_as_a_tool_error(ledger):
+    response = await handle_request(
+        {"jsonrpc": "2.0", "id": 1, "method": "tools/call",
+         "params": {"name": "marketing_minimum_budgets", "arguments": {"ad_account_id": ""}}},
+        token=TOKEN, ledger=ledger, http_post=Scripted(), http_get=Scripted(),
+    )
+    assert response["result"]["isError"] is True
+    assert "ad_account_id is required" in response["result"]["content"][0]["text"]
 
 
 # --- the real httpx wiring, via httpx's own MockTransport (not a monkeypatch

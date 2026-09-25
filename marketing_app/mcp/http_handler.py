@@ -30,7 +30,7 @@ from typing import Any
 
 import httpx
 
-from ..activation import ActivationError, activate_campaign
+from ..activation import ActivationError, activate_campaign, minimum_budgets
 from ..creative import CreativeError, build_creative
 from ..filtering import filter_products
 from ..ledger import Ledger
@@ -222,6 +222,28 @@ TOOLS_SCHEMA: list[dict[str, Any]] = [
             },
         },
     },
+    {
+        "name": "marketing_minimum_budgets",
+        "description": (
+            "Read-only: Meta's own per-currency minimum ad-set daily spend for "
+            "an ad account. Check this BEFORE creating or activating anything "
+            "with a tight budget, instead of finding out from "
+            "marketing_activate_campaign's error_subcode 1885648 (ad set "
+            "minimum spend higher than the campaign's daily budget) — which "
+            "also attaches the real numbers to a partial result when that "
+            "specific error is why it happened. Makes no write of any kind."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "ad_account_id": {
+                    "type": "string",
+                    "description": "Meta ad account id, with or without the act_ prefix.",
+                },
+            },
+            "required": ["ad_account_id"],
+        },
+    },
 ]
 
 
@@ -343,5 +365,14 @@ async def handle_request(request: dict, *, config: dict[str, Any] | None = None,
 
     if name == "marketing_list_campaigns":
         return _ok(req_id, _json(ledger.list(limit=int(args.get("limit") or 20))))
+
+    if name == "marketing_minimum_budgets":
+        try:
+            result = await minimum_budgets(
+                args.get("ad_account_id") or "", token=token, http_get=http_get,
+            )
+        except ActivationError as exc:
+            return _err(req_id, str(exc))
+        return _ok(req_id, _json(result))
 
     return _err(req_id, f"Unknown tool: {name}")

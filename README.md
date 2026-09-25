@@ -21,7 +21,7 @@ in a process, never in this repo.
 ## What you get when it's installed
 
 * **Two gateway upstreams**, both written into one `mcp.json` by this app:
-  * `marketing` — the six tools below, on `/api/apps/marketing/mcp`
+  * `marketing` — the seven tools below, on `/api/apps/marketing/mcp`
   * `meta-ads` — Meta's hosted Ads MCP, with your access token
 * **One agent** — `marketing-sonnet`, plus its agent config
 * **One skill** — `aw-marketing`, the flow contract the agent loads
@@ -37,11 +37,12 @@ in a process, never in this repo.
 | `marketing_record_campaign(plan, meta_ids)` | appends what Meta created and returns the Ads Manager link. Idempotent on `campaign_id` |
 | `marketing_activate_campaign(campaign_id)` | the ONLY sanctioned way to flip a recorded campaign to `ACTIVE`. Sends a real human approval request (naming the campaign, account and budget it already recorded) and blocks until it's approved; fails closed on denial, timeout or an unreachable backend |
 | `marketing_list_campaigns(limit)` | what was launched, when, for which products |
+| `marketing_minimum_budgets(ad_account_id)` | read-only: Meta's own per-currency minimum ad-set daily spend for an ad account, straight from `GET /act_<id>/minimum_budgets`. Check it before a tight budget, instead of finding out from a failed activation |
 
-Five of the six are pure and offline; `marketing_activate_campaign` is the one
-exception, and its entire job is that one gated network call. **None creates a
-campaign. None reads a catalog.** Two tests pin exactly that
-(`tests/test_routes_and_mcp.py`).
+Five of the seven are pure and offline; the other two make a real network
+call — `marketing_activate_campaign` (gated, writes) and
+`marketing_minimum_budgets` (read-only). **None creates a campaign. None reads
+a catalog.** Two tests pin exactly that (`tests/test_routes_and_mcp.py`).
 
 ## Configuration
 
