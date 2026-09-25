@@ -2,7 +2,7 @@
   "manifest_version": 1,
   "id": "marketing",
   "name": "Marketing",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "description": "Turns a product shortlist into a paid-social campaign the human still has to press play on \u2014 or ask for directly. Registers Meta's own hosted Ads MCP server (mcp.facebook.com/ads) as a gateway upstream with your access token, and adds six tools of its own \u2014 score a catalog against a collection hint, draft a campaign plan, build a validated carousel creative, keep an append-only ledger of what was launched, read Meta's own minimum ad-set spend for an account, and (the one tool that writes anything) activate a campaign, but only behind a real human approval request, never on the agent's own judgment. It never creates a campaign (Meta's tools do) and never reads a catalog (the store's app does); campaigns are always created PAUSED, and activating one is always a human's call \u2014 in Ads Manager, or through this app's own approval-gated tool when they ask directly.",
   "icon": "megaphone",
   "tier": "inprocess",
