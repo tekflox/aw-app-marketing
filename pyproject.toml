@@ -18,13 +18,17 @@ exclude_lines = [
 ]
 show_missing = true
 precision = 1
-# Hard 100% gate, same bar aw-app-template sets for the estate. Measured 100%
-# at first commit with real behavioural tests (no import-only stubs) — this is
-# a small, deterministic, pure-function app, so there is nothing here that is
-# genuinely impractical to cover. The riskiest code in it (mcp/self_register.py,
-# whose failure mode is SILENT: the gateway keeps listing the upstream and
-# serves zero tools) is exactly the code a coverage gap would hide. Never lower
-# this without writing the reason here.
+# Was CI-enforced at 100% (measured, not aspirational — real behavioural
+# tests, no import-only stubs). The aw-app-* fleet migration's test.yml
+# (DESIGN.md §2/§4.1) replaced this repo's own coverage-gated CI job with
+# the fleet's shared no-coverage-gate shape, deferring the coverage-gate
+# rollout to that standard's own Phase 2 — not a decision made here, and
+# not a lowering of the bar: `fail_under` itself is untouched, only nothing
+# in CI runs `pytest --cov` anymore to check it. Still real for a manual
+# `pytest --cov=marketing_app` run. The riskiest code in this repo
+# (mcp/self_register.py, whose failure mode is SILENT: the gateway keeps
+# listing the upstream and serves zero tools) is exactly the code a
+# coverage gap would hide — Phase 2 should restore enforcement here first.
 fail_under = 100
 
 [tool.pytest.ini_options]
