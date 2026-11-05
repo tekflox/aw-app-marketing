@@ -179,7 +179,8 @@ statement of what *should* be enforced once profiles work.
 
 ```bash
 python3 -m venv .venv && .venv/bin/pip install -r requirements-dev.txt pytest jsonschema fastapi httpx
-.venv/bin/python -m pytest tests/ -q          # 100% coverage gate, see pyproject.toml
+.venv/bin/python -m pytest tests/ -q          # CI's own invocation (no --cov; see pyproject.toml)
+.venv/bin/python -m pytest --cov=marketing_app --cov-report=term-missing tests/ -q  # local-only 100% gate check
 .venv/bin/python tests/validate_manifest.py aw-app.json --schema <aw-marketplace>/schemas/aw-app.schema.json
 ```
 
