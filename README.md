@@ -189,3 +189,5 @@ checkout: the gateway's app-scan only reads `apps/<slug>/mcp.json`, so a
 sideloaded app activates and serves zero MCP tools. After installing, re-check
 `GET /status` and restart the `mcp-gateway` app — reinstalls have silently lost
 config keys before, with every route still answering 200.
+
+<!-- aw-app-* fleet migration B2: follow-up no-op PR proving the comment + workflow_run merge paths (DESIGN.md §3 step 8). -->
